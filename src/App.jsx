@@ -59,7 +59,7 @@ const STORAGE_KEY = "smartmotor-light-industrial-v1";
 
 // "sim" → simulação local | "ws" → WebSocket backend
 const DATA_SOURCE = "ws";
-const WS_URL      = "ws://127.0.0.1:8000/ws";
+const WS_URL = import.meta.env.VITE_WS_URL || "ws://127.0.0.1:8000/ws";
 
 /* ═══════════════════════════════════════════
    SIMULAÇÃO
