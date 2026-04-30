@@ -1,79 +1,126 @@
-import { useState, useEffect, useRef, useCallback, useMemo } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
-  AreaChart, Area, LineChart, Line,
-  XAxis, YAxis, CartesianGrid, Tooltip,
-  ResponsiveContainer, ReferenceLine,
+  AreaChart,
+  Area,
+  LineChart,
+  Line,
+  XAxis,
+  YAxis,
+  CartesianGrid,
+  ResponsiveContainer,
+  ReferenceLine,
+  Tooltip,
 } from "recharts";
 
+/* ═══════════════════════════════════════════
+   TEMA CLARO INDUSTRIAL
+═══════════════════════════════════════════ */
 const C = {
-  bg: "#eff2f7",
-  bg2: "#f7f9fc",
-  panel: "#ffffff",
-  panelHi: "#edf1f7",
-  border: "#cbd8e6",
-  borderHi: "#94adc4",
-  blue: "#0557b8",
-  teal: "#007870",
-  orange: "#c96a00",
-  red: "#c02828",
-  amber: "#c88800",
-  green: "#1e8a4a",
-  dim: "#546878",
-  dimmer: "#b8c8d8",
-  white: "#111e2c",
-  grid: "#dce8f4",
+  bg: "#0f6f6a",
+  bg2: "#1d8b84",
+  panel: "#d9e6df",
+  panelHi: "#c7d8cf",
+  border: "#5e7f79",
+  borderHi: "#3f5f59",
+
+  blue: "#2f6fb2",
+  teal: "#2f9f88",
+  orange: "#d98324",
+  red: "#c93d32",
+  amber: "#d8b11e",
+  green: "#7fd36a",
+
+  dim: "#35534f",
+  dimmer: "#5d7a74",
+  white: "#1c2b29",
+  grid: "#b8cbc4",
 };
 
 const M = "'Azeret Mono','Courier New',monospace";
 const U = "'DM Sans','Segoe UI',sans-serif";
 
 const TT = {
-  background: "#ffffff",
+  background: C.panel,
   border: `1px solid ${C.borderHi}`,
   borderRadius: 6,
   fontSize: 10,
   color: C.white,
   fontFamily: M,
   padding: "6px 10px",
-  boxShadow: "0 4px 14px rgba(5,40,80,0.10)",
+  boxShadow: "0 8px 18px rgba(0,0,0,0.08)",
 };
 
 const LIM = {
-  vib: { w: 0.30, c: 0.50 },
-  temp: { w: 80, c: 85 },
+  vib: { w: 4.5, c: 7.1 },
+  temp: { w: 75, c: 85 },
 };
 
-const DATA_SOURCE = "api";
-const API_BASE_URL = "http://127.0.0.1:8000";
-const API_POLL_MS = 3000;
+const STORAGE_KEY = "smartmotor-light-industrial-v1";
 
-const defaultAlerts = [
-  { id: "sys-1", type: "SYS", msg: "SmartMotor v2 — painel operacional iniciado", t: new Date().toLocaleTimeString("pt-BR"), c: C.blue },
-  { id: "sys-2", type: "SYS", msg: "PT100 (temperatura) + ADXL345 (vibração) — ativos", t: new Date().toLocaleTimeString("pt-BR"), c: C.teal },
-  { id: "sys-3", type: "SYS", msg: `Fonte de dados: ${DATA_SOURCE.toUpperCase()} — ${API_BASE_URL}`, t: new Date().toLocaleTimeString("pt-BR"), c: C.blue },
-];
+// "sim" → simulação local | "ws" → WebSocket backend
+const DATA_SOURCE = "ws";
+const WS_URL      = "ws://127.0.0.1:8000/ws";
 
-function mapApiResponse(raw) {
-  const t = raw.timestamp
-    ? new Date(raw.timestamp).toLocaleTimeString("pt-BR")
-    : new Date().toLocaleTimeString("pt-BR");
+/* ═══════════════════════════════════════════
+   SIMULAÇÃO
+═══════════════════════════════════════════ */
+const rnd = (s) => (Math.random() - 0.5) * 2 * s;
+const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
+let _tick = 0;
 
-  const temp = Number(raw.temperature ?? raw.temperatura ?? raw.temp ?? 0);
-  const ax = Number(raw.vibration_x ?? raw.ax ?? 0);
-  const ay = Number(raw.vibration_y ?? raw.ay ?? 0);
-  const az = Number(raw.vibration_z ?? raw.az ?? 0);
-  const vibRMS = Number(
-    raw.vibration_rms ??
-    raw.vibracao_rms ??
-    Math.sqrt((ax ** 2 + ay ** 2 + az ** 2) / 3)
-  );
-  const rpm = Number(raw.rpm ?? 0);
-  const freq = Number(raw.frequency_hz ?? raw.frequencia_hz ?? raw.freq ?? 0);
-  const hours = Number(raw.hours_operation ?? raw.horas_operacao ?? raw.hours ?? 0);
-  const score = Number(raw.health_score ?? raw.saude_score ?? raw.score ?? 0);
-  const bat = Number(raw.bat ?? 100);
+function simTick(prev, degrad, running, freqSP) {
+  _tick++;
 
-  return { temp, ax, ay, az, vibRMS, rpm, freq, hours, bat, score, t };
+  if (!running) {
+    return prev
+      ? {
+          ...prev,
+          ax: 0,
+          ay: 0,
+          az: 0,
+          vibRMS: 0,
+          rpm: 0,
+          freq: 0,
+          t: new Date().toLocaleTimeString("pt-BR"),
+          tick: _tick,
+        }
+      : null;
+  }
+
+  const d = degrad / 100;
+  const loadFactor = clamp((freqSP - 30) / 30, 0, 1);
+  const spike = Math.random() < 0.05 ? 0.35 + 0.7 * d : 0;
+
+  const temp = prev
+    ? clamp(prev.temp + rnd(0.18) + 0.02 * d + 0.01 * loadFactor, 28, 98)
+    : 44 + d * 16 + loadFactor * 8;
+
+  const ax = prev
+    ? clamp(prev.ax + rnd(0.03) + 0.015 * d + spike, 0.02, 6)
+    : 0.7 + d * 1.6 + loadFactor * 0.4;
+
+  const ay = prev
+    ? clamp(prev.ay + rnd(0.03) + 0.014 * d + spike * 0.9, 0.02, 6)
+    : 0.8 + d * 1.5 + loadFactor * 0.35;
+
+  const az = prev
+    ? clamp(prev.az + rnd(0.04) + 0.018 * d + spike * 1.1, 0.02, 6)
+    : 1.0 + d * 1.9 + loadFactor * 0.45;
+
+  const vibRMS = +Math.sqrt((ax ** 2 + ay ** 2 + az ** 2) / 3).toFixed(3);
+
+  const freq = +freqSP.toFixed(1);
+  const rpm = +(freq * (3475 / 60)).toFixed(0);
+  const hours = prev ? +(prev.hours + 0.000556).toFixed(3) : 1248.5 + d * 180;
+  const bat = prev ? clamp(prev.bat - 0.001, 0, 100) : 84.2;
+
+  const sVib = Math.max(0, 60 * (1 - clamp(vibRMS / LIM.vib.c, 0, 1)));
+  const sTemp = Math.max(0, 40 * (1 - clamp((temp - 35) / 50, 0, 1)));
+  const score = Math.round(sVib + sTemp);
+
+  const t = new Date().toLocaleTimeString("pt-BR");
+
+  return { temp, ax, ay, az, vibRMS, rpm, freq, hours, bat, score, t, tick: _tick };
 }
 
 function motorStatus(d) {
@@ -83,43 +130,71 @@ function motorStatus(d) {
   return "NORMAL";
 }
 
-const gc = (v, lim) => v >= lim.c ? C.red : v >= lim.w ? C.amber : C.teal;
+function gc(v, lim) {
+  return v >= lim.c ? C.red : v >= lim.w ? C.amber : C.teal;
+}
 
 function exportAlertsToCSV(alerts) {
-  const csv = [["tipo", "horario", "mensagem"], ...alerts.map((a) => [a.type, a.t, a.msg])]
-    .map((r) => r.map((c) => `"${String(c).replaceAll('"', '""')}"`).join(","))
+  const headers = ["tipo", "horario", "mensagem"];
+  const rows = alerts.map((a) => [a.type, a.t, a.msg]);
+
+  const csv = [headers, ...rows]
+    .map((row) => row.map((cell) => `"${String(cell).replaceAll('"', '""')}"`).join(","))
     .join("\n");
-  const url = URL.createObjectURL(new Blob([csv], { type: "text/csv;charset=utf-8;" }));
-  const link = Object.assign(document.createElement("a"), { href: url, download: `smartmotor-${Date.now()}.csv` });
+
+  const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+  const url = URL.createObjectURL(blob);
+
+  const link = document.createElement("a");
+  link.href = url;
+  link.setAttribute("download", `smartmotor-alertas-${Date.now()}.csv`);
   document.body.appendChild(link);
   link.click();
   document.body.removeChild(link);
   URL.revokeObjectURL(url);
 }
 
+/* ═══════════════════════════════════════════
+   BASE UI
+═══════════════════════════════════════════ */
 function Fonts() {
   useEffect(() => {
-    if (!document.getElementById("sm-fonts")) {
+    if (!document.getElementById("pb2-fonts")) {
       const l = document.createElement("link");
-      l.id = "sm-fonts";
+      l.id = "pb2-fonts";
       l.rel = "stylesheet";
       l.href =
         "https://fonts.googleapis.com/css2?family=Azeret+Mono:wght@300;400;600;700&family=DM+Sans:wght@300;400;500;600;700&display=swap";
       document.head.appendChild(l);
     }
-    Object.assign(document.body.style, { margin: 0, padding: 0, background: C.bg });
+
+    Object.assign(document.body.style, {
+      margin: 0,
+      padding: 0,
+      background: C.bg,
+    });
   }, []);
+
   return null;
 }
 
 function CustomTooltip({ active, payload, label }) {
-  if (!active || !payload?.length) return null;
+  if (!active || !payload || !payload.length) return null;
+
   return (
     <div style={TT}>
       <div style={{ fontSize: 9, color: C.dim, marginBottom: 4 }}>{label}</div>
       {payload.map((p, i) => (
         <div key={i} style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 3 }}>
-          <span style={{ width: 8, height: 8, borderRadius: 99, background: p.color, display: "inline-block" }} />
+          <span
+            style={{
+              width: 8,
+              height: 8,
+              borderRadius: 99,
+              background: p.color,
+              display: "inline-block",
+            }}
+          />
           <span style={{ fontFamily: M, fontSize: 9 }}>
             {p.name}: {Number(p.value).toFixed(2)}
           </span>
@@ -129,7 +204,30 @@ function CustomTooltip({ active, payload, label }) {
   );
 }
 
-function TileKPI({ label, value, unit, color, sub }) {
+function MiniVal({ label, value, unit, color }) {
+  return (
+    <div style={{ textAlign: "center", minWidth: 64 }}>
+      <div style={{ fontFamily: M, fontSize: 15, fontWeight: 700, color: color || C.white, lineHeight: 1 }}>
+        {value}
+      </div>
+      <div style={{ fontFamily: M, fontSize: 8, color: C.dim, marginTop: 2 }}>{unit}</div>
+      <div
+        style={{
+          fontFamily: U,
+          fontSize: 8,
+          color: C.dimmer,
+          marginTop: 1,
+          textTransform: "uppercase",
+          letterSpacing: "0.08em",
+        }}
+      >
+        {label}
+      </div>
+    </div>
+  );
+}
+
+function TileKPI({ label, value, unit, color, sub, norm, small }) {
   return (
     <div
       style={{
@@ -137,15 +235,49 @@ function TileKPI({ label, value, unit, color, sub }) {
         borderRadius: 8,
         border: `1px solid ${C.border}`,
         borderTop: `3px solid ${color || C.blue}`,
-        padding: "12px 14px",
+        padding: small ? "10px 12px" : "13px 15px",
+        position: "relative",
+        overflow: "hidden",
+        boxShadow: "0 8px 18px rgba(19,31,45,0.05)",
       }}
     >
-      <div style={{ fontFamily: U, fontSize: 8, color: C.dim, textTransform: "uppercase", letterSpacing: "0.13em", marginBottom: 4 }}>
+      {norm && (
+        <span
+          style={{
+            position: "absolute",
+            top: 5,
+            right: 7,
+            fontFamily: M,
+            fontSize: 7,
+            color: C.dimmer,
+          }}
+        >
+          {norm}
+        </span>
+      )}
+      <div
+        style={{
+          fontFamily: U,
+          fontSize: 8,
+          color: C.dim,
+          textTransform: "uppercase",
+          letterSpacing: "0.13em",
+          marginBottom: 4,
+        }}
+      >
         {label}
       </div>
-      <div style={{ fontFamily: M, fontSize: 22, fontWeight: 700, color: color || C.white, lineHeight: 1 }}>
+      <div
+        style={{
+          fontFamily: M,
+          fontSize: small ? 20 : 24,
+          fontWeight: 700,
+          color: color || C.white,
+          lineHeight: 1,
+        }}
+      >
         {value}
-        <span style={{ fontSize: 9, color: C.dim, marginLeft: 4 }}>{unit}</span>
+        <span style={{ fontFamily: M, fontSize: 9, color: C.dim, marginLeft: 3 }}>{unit}</span>
       </div>
       {sub && <div style={{ fontFamily: M, fontSize: 8, color: C.dim, marginTop: 4 }}>{sub}</div>}
     </div>
@@ -156,7 +288,16 @@ function SectionLabel({ label, color, icon }) {
   return (
     <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12 }}>
       <div style={{ width: 3, height: 16, background: color || C.blue, borderRadius: 2 }} />
-      <span style={{ fontFamily: U, fontSize: 10, fontWeight: 700, color: C.white, textTransform: "uppercase", letterSpacing: "0.1em" }}>
+      <span
+        style={{
+          fontFamily: U,
+          fontSize: 10,
+          fontWeight: 700,
+          color: C.white,
+          textTransform: "uppercase",
+          letterSpacing: "0.1em",
+        }}
+      >
         {icon && <span style={{ marginRight: 5 }}>{icon}</span>}
         {label}
       </span>
@@ -164,81 +305,73 @@ function SectionLabel({ label, color, icon }) {
   );
 }
 
-function ConnBadge({ ok }) {
-  const color = ok ? C.teal : C.red;
-  return (
-    <span
-      style={{
-        fontFamily: M,
-        fontSize: 8,
-        fontWeight: 700,
-        color,
-        background: color + "18",
-        border: `1px solid ${color}55`,
-        borderRadius: 3,
-        padding: "2px 8px",
-      }}
-    >
-      MODBUS {ok ? "ON" : "OFF"}
-    </span>
-  );
-}
-
-function PersistentAlarm({ alarm }) {
-  if (!alarm) return null;
-  const isCrit = alarm.level === "CRIT";
-  const bg = isCrit ? "#fff1f1" : "#fff8e8";
-  const border = isCrit ? C.red : C.amber;
-  const titleColor = isCrit ? C.red : C.amber;
-
-  return (
-    <div
-      style={{
-        position: "fixed",
-        top: 76,
-        right: 18,
-        zIndex: 2000,
-        width: 360,
-        maxWidth: "calc(100vw - 24px)",
-        background: bg,
-        border: `2px solid ${border}`,
-        borderLeft: `6px solid ${border}`,
-        borderRadius: 8,
-        boxShadow: "0 10px 24px rgba(0,0,0,0.12)",
-        padding: "12px 14px",
-      }}
-    >
-      <div style={{ fontFamily: U, fontSize: 11, fontWeight: 700, color: titleColor, textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 6 }}>
-        {alarm.title}
-      </div>
-      <div style={{ fontFamily: U, fontSize: 12, lineHeight: 1.45, color: C.white, marginBottom: 8 }}>{alarm.message}</div>
-      <div style={{ fontFamily: M, fontSize: 8, color: C.dim }}>Permanece ativo até retorno à faixa normal.</div>
-    </div>
-  );
-}
-
+/* ═══════════════════════════════════════════
+   MOTOR SVG
+═══════════════════════════════════════════ */
 function MotorSVG({ status, running, onClick }) {
   const col = status === "CRÍTICO" ? C.red : status === "ALERTA" ? C.amber : status === "NORMAL" ? C.teal : C.dim;
-  const bodyC = running ? "#dde7f2" : "#e8eef5";
+  const bodyCol = running ? "#dde7f0" : "#e6ebf1";
+  const shaftCol = running ? "#b8c8d8" : "#d1dbe4";
 
   return (
-    <svg viewBox="0 0 440 205" style={{ width: "100%", maxWidth: 480, cursor: "pointer", display: "block" }} onClick={onClick}>
-      <rect x="74" y="36" width="278" height="128" rx="14" fill={bodyC} stroke={C.borderHi} strokeWidth="1.5" />
-      <rect x="46" y="46" width="30" height="108" rx="8" fill="#c8d8ea" stroke={C.borderHi} strokeWidth="1.2" />
-      <rect x="350" y="46" width="30" height="108" rx="8" fill="#c8d8ea" stroke={C.borderHi} strokeWidth="1.2" />
-      <rect x="380" y="94" width="52" height="12" rx="5" fill="#a4bad0" stroke={C.borderHi} strokeWidth="1" />
-      <rect x="112" y="76" width="202" height="48" rx="4" fill={C.panel} stroke={col} strokeWidth="1" />
-      <text x="213" y="92" textAnchor="middle" fill={col} fontSize="10" fontFamily={U} fontWeight="700">MOTOR WEG 3HP · IE3</text>
-      <text x="213" y="105" textAnchor="middle" fill={C.dim} fontSize="8" fontFamily={M}>220/380V · 60Hz · 3475rpm</text>
-      <rect x="80" y="40" width="70" height="22" rx="4" fill={C.blue + "1a"} stroke={C.blue} strokeWidth="1.2" />
-      <text x="115" y="51" textAnchor="middle" fill={C.blue} fontSize="8" fontFamily={U} fontWeight="700">ADXL345</text>
-      <rect x="286" y="40" width="64" height="22" rx="4" fill={C.orange + "1a"} stroke={C.orange} strokeWidth="1.2" />
-      <text x="318" y="51" textAnchor="middle" fill={C.orange} fontSize="8" fontFamily={U} fontWeight="700">PT100</text>
-      <circle cx="366" cy="46" r="7.5" fill={col} />
-      <text x="213" y="190" textAnchor="middle" fill={running ? col : C.dim} fontSize="9" fontFamily={U} fontWeight={running ? "600" : "400"}>
-        {running ? `● EM OPERAÇÃO · ${status}` : "○ PARADO"}
+    <svg
+      viewBox="0 0 420 220"
+      style={{ width: "100%", maxWidth: 420, cursor: "pointer", display: "block" }}
+      onClick={onClick}
+    >
+      <rect width="420" height="220" fill="transparent" />
+
+      <rect x="68" y="162" width="50" height="18" rx="3" fill="#cfd8e2" stroke={C.borderHi} strokeWidth="1" />
+      <rect x="302" y="162" width="50" height="18" rx="3" fill="#cfd8e2" stroke={C.borderHi} strokeWidth="1" />
+
+      <rect x="70" y="48" width="280" height="120" rx="14" fill={bodyCol} stroke={C.borderHi} strokeWidth="1.5" />
+
+      {Array.from({ length: 10 }).map((_, i) => (
+        <rect key={i} x={84 + i * 24} y="48" width="2" height="120" fill="#b7c5d4" opacity="0.9" />
+      ))}
+
+      <rect x="44" y="58" width="28" height="100" rx="6" fill={shaftCol} stroke={C.borderHi} strokeWidth="1" />
+      <ellipse cx="58" cy="108" rx="10" ry="38" fill={bodyCol} stroke={C.borderHi} strokeWidth="0.8" />
+
+      <rect x="348" y="58" width="28" height="100" rx="6" fill={shaftCol} stroke={C.borderHi} strokeWidth="1" />
+      <ellipse cx="362" cy="108" rx="10" ry="38" fill={bodyCol} stroke={C.borderHi} strokeWidth="0.8" />
+
+      <rect x="376" y="101" width="36" height="14" rx="4" fill="#9fb2c6" stroke={C.borderHi} strokeWidth="1" />
+
+      <rect x="154" y="22" width="88" height="30" rx="5" fill="#d8e2ec" stroke={C.borderHi} strokeWidth="1.2" />
+
+      <rect x="92" y="56" width="72" height="24" rx="5" fill="#dce8f6" stroke={C.blue} strokeWidth="1.2" />
+      <text x="128" y="66" textAnchor="middle" fill={C.blue} fontSize="7" fontFamily={U} fontWeight="700">
+        VIBRAÇÃO
       </text>
-      <text x="213" y="202" textAnchor="middle" fill={C.dimmer} fontSize="7.5" fontFamily={M}>clique para abrir painel de controle</text>
+      <text x="128" y="76" textAnchor="middle" fill={C.dim} fontSize="6.2" fontFamily={M}>
+        SENSOR 3 EIXOS
+      </text>
+
+      <rect x="248" y="56" width="72" height="24" rx="5" fill="#fff0dd" stroke={C.orange} strokeWidth="1.2" />
+      <text x="284" y="66" textAnchor="middle" fill={C.orange} fontSize="7" fontFamily={U} fontWeight="700">
+        TEMPERATURA
+      </text>
+      <text x="284" y="76" textAnchor="middle" fill={C.dim} fontSize="6.2" fontFamily={M}>
+        SENSOR RTD
+      </text>
+
+      <rect x="110" y="92" width="200" height="46" rx="4" fill="#f9fbfd" stroke={col} strokeWidth="1" />
+      <text x="210" y="110" textAnchor="middle" fill={col} fontSize="10" fontFamily={U} fontWeight="700">
+        MONITORAMENTO OPERACIONAL
+      </text>
+      <text x="210" y="124" textAnchor="middle" fill={C.dim} fontSize="8" fontFamily={M}>
+        MOTOR WEG 3HP · CFW500 · TM221
+      </text>
+      <text x="210" y="136" textAnchor="middle" fill={C.dimmer} fontSize="7.5" fontFamily={M}>
+        TEMPERATURA + VIBRAÇÃO
+      </text>
+
+      <circle cx="390" cy="62" r="7" fill={col} stroke={col} strokeWidth="1" />
+      <text x="390" y="82" textAnchor="middle" fill={C.dim} fontSize="7" fontFamily={M}>
+        STATUS
+      </text>
+
     </svg>
   );
 }
@@ -248,28 +381,31 @@ function TelemetryPanel({ d, hist }) {
   const tempC = d ? gc(d.temp, LIM.temp) : C.dim;
 
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+    <div style={{ display: "flex", flexDirection: "column", gap: 10, height: "100%" }}>
       <SectionLabel label="Telemetria Operacional" color={C.teal} icon="◈" />
+
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 6 }}>
-        <TileKPI label="Temperatura" value={d?.temp?.toFixed(1) || "--"} unit="°C" color={tempC} sub={`Atenção ${LIM.temp.w} / Crítico ${LIM.temp.c}`} />
-        <TileKPI label="Vibração Global" value={d?.vibRMS?.toFixed(2) || "--"} unit="g" color={vibC} sub={`Atenção ${LIM.vib.w} / Crítico ${LIM.vib.c}`} />
-        <TileKPI label="Condição do Ativo" value={d?.score || "--"} unit="/100" color={d ? (d.score > 70 ? C.green : d.score > 40 ? C.amber : C.red) : C.dim} />
-        <TileKPI label="Frequência" value={d?.freq?.toFixed(1) || "--"} unit="Hz" color={C.blue} sub="inversor CFW500" />
+        <TileKPI small label="Temperatura da Carcaça" value={d?.temp?.toFixed(1) || "--"} unit="°C" color={tempC} norm="RTD" sub={`Atenção ${LIM.temp.w} / Crítico ${LIM.temp.c}`} />
+        <TileKPI small label="Vibração Global" value={d?.vibRMS?.toFixed(2) || "--"} unit="g" color={vibC} norm="3 eixos" sub={`Atenção ${LIM.vib.w} / Crítico ${LIM.vib.c}`} />
+        <TileKPI small label="Condição do Ativo" value={d?.score || "--"} unit="/100" color={d ? (d.score > 70 ? C.green : d.score > 40 ? C.amber : C.red) : C.dim} />
+        <TileKPI small label="Frequência do Inversor" value={d?.freq?.toFixed(1) || "--"} unit="Hz" color={C.blue} sub="referência operacional" />
       </div>
 
       <div style={{ background: C.panel, borderRadius: 8, padding: "10px 12px", border: `1px solid ${C.border}` }}>
-        <div style={{ fontFamily: M, fontSize: 8, color: C.dim, marginBottom: 6, textTransform: "uppercase", letterSpacing: "0.1em" }}>Tendência Térmica · PT100</div>
-        <ResponsiveContainer width="100%" height={90}>
+        <div style={{ fontFamily: M, fontSize: 8, color: C.dim, marginBottom: 6, textTransform: "uppercase", letterSpacing: "0.1em" }}>
+          Tendência Térmica
+        </div>
+        <ResponsiveContainer width="100%" height={95}>
           <AreaChart data={hist.slice(-30)}>
             <defs>
               <linearGradient id="gtemp" x1="0" y1="0" x2="0" y2="1">
-                <stop offset="5%" stopColor={C.orange} stopOpacity={0.2} />
+                <stop offset="5%" stopColor={C.orange} stopOpacity={0.22} />
                 <stop offset="95%" stopColor={C.orange} stopOpacity={0} />
               </linearGradient>
             </defs>
             <CartesianGrid strokeDasharray="2 6" stroke={C.grid} />
             <XAxis dataKey="t" tick={{ fontSize: 6, fill: C.dim, fontFamily: M }} interval="preserveStartEnd" />
-            <YAxis tick={{ fontSize: 6, fill: C.dim, fontFamily: M }} width={24} />
+            <YAxis tick={{ fontSize: 6, fill: C.dim, fontFamily: M }} width={22} />
             <Tooltip content={<CustomTooltip />} />
             <ReferenceLine y={LIM.temp.w} stroke={C.amber} strokeDasharray="3 2" strokeWidth={0.8} />
             <ReferenceLine y={LIM.temp.c} stroke={C.red} strokeDasharray="3 2" strokeWidth={0.8} />
@@ -279,18 +415,20 @@ function TelemetryPanel({ d, hist }) {
       </div>
 
       <div style={{ background: C.panel, borderRadius: 8, padding: "10px 12px", border: `1px solid ${C.border}` }}>
-        <div style={{ fontFamily: M, fontSize: 8, color: C.dim, marginBottom: 6, textTransform: "uppercase", letterSpacing: "0.1em" }}>Tendência Vibracional · ADXL345</div>
-        <ResponsiveContainer width="100%" height={90}>
+        <div style={{ fontFamily: M, fontSize: 8, color: C.dim, marginBottom: 6, textTransform: "uppercase", letterSpacing: "0.1em" }}>
+          Tendência Vibracional
+        </div>
+        <ResponsiveContainer width="100%" height={95}>
           <AreaChart data={hist.slice(-30)}>
             <defs>
               <linearGradient id="gvib" x1="0" y1="0" x2="0" y2="1">
-                <stop offset="5%" stopColor={C.blue} stopOpacity={0.2} />
+                <stop offset="5%" stopColor={C.blue} stopOpacity={0.22} />
                 <stop offset="95%" stopColor={C.blue} stopOpacity={0} />
               </linearGradient>
             </defs>
             <CartesianGrid strokeDasharray="2 6" stroke={C.grid} />
             <XAxis dataKey="t" tick={{ fontSize: 6, fill: C.dim, fontFamily: M }} interval="preserveStartEnd" />
-            <YAxis tick={{ fontSize: 6, fill: C.dim, fontFamily: M }} width={24} />
+            <YAxis tick={{ fontSize: 6, fill: C.dim, fontFamily: M }} width={22} />
             <Tooltip content={<CustomTooltip />} />
             <ReferenceLine y={LIM.vib.w} stroke={C.amber} strokeDasharray="3 2" strokeWidth={0.8} />
             <ReferenceLine y={LIM.vib.c} stroke={C.red} strokeDasharray="3 2" strokeWidth={0.8} />
@@ -298,56 +436,168 @@ function TelemetryPanel({ d, hist }) {
           </AreaChart>
         </ResponsiveContainer>
       </div>
+
+      <div style={{ background: C.panel, borderRadius: 8, padding: "10px 12px", border: `1px solid ${C.border}` }}>
+        <div style={{ fontFamily: M, fontSize: 8, color: C.dim, marginBottom: 8, textTransform: "uppercase", letterSpacing: "0.1em" }}>
+          Leitura por Eixo
+        </div>
+        <div style={{ display: "flex", justifyContent: "space-around" }}>
+          <MiniVal label="Eixo X" value={d?.ax?.toFixed(2) || "--"} unit="g" color={C.blue} />
+          <MiniVal label="Eixo Y" value={d?.ay?.toFixed(2) || "--"} unit="g" color="#6d7f91" />
+          <MiniVal label="Eixo Z" value={d?.az?.toFixed(2) || "--"} unit="g" color={C.teal} />
+          <MiniVal label="RPM" value={d?.rpm?.toFixed(0) || "--"} unit="rpm" color={C.dim} />
+        </div>
+      </div>
     </div>
   );
 }
 
-function AlertPanel({ alerts, d, onExport, onResolve }) {
+function AlertPanel({ alerts, d, onExport }) {
   const sC = d ? (d.score > 70 ? C.green : d.score > 40 ? C.amber : C.red) : C.dim;
   const crits = alerts.filter((a) => a.type === "CRIT").length;
   const warns = alerts.filter((a) => a.type === "WARN").length;
 
   return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+    <div style={{ display: "flex", flexDirection: "column", gap: 10, height: "100%" }}>
       <SectionLabel label="Diagnóstico Técnico" color={C.red} icon="▲" />
+
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 6 }}>
-        {[["Críticos", crits, C.red], ["Alertas", warns, C.amber], ["Saúde", d?.score || "--", sC]].map(([lbl, val, col]) => (
-          <div key={lbl} style={{ background: C.panel, border: `1px solid ${C.border}`, borderTop: `3px solid ${col}`, borderRadius: 8, padding: "8px 10px", textAlign: "center" }}>
+        {[
+          ["Críticos", crits, C.red],
+          ["Alertas", warns, C.amber],
+          ["Saúde", d?.score || "--", sC],
+        ].map(([lbl, val, col]) => (
+          <div
+            key={lbl}
+            style={{
+              background: C.panel,
+              border: `1px solid ${C.border}`,
+              borderTop: `3px solid ${col}`,
+              borderRadius: 8,
+              padding: "8px 10px",
+              textAlign: "center",
+            }}
+          >
             <div style={{ fontFamily: M, fontSize: 16, fontWeight: 700, color: col }}>{val}</div>
-            <div style={{ fontFamily: U, fontSize: 8, color: C.dim, textTransform: "uppercase", marginTop: 2 }}>{lbl}</div>
+            <div style={{ fontFamily: U, fontSize: 8, color: C.dim, textTransform: "uppercase", marginTop: 2 }}>
+              {lbl}
+            </div>
           </div>
         ))}
       </div>
 
-      <div style={{ background: C.panel, borderRadius: 8, padding: "12px 14px", border: `1px solid ${C.borderHi}`, borderLeft: `3px solid ${sC}` }}>
-        <div style={{ fontFamily: U, fontSize: 9, fontWeight: 700, color: sC, textTransform: "uppercase", letterSpacing: "0.1em", marginBottom: 8 }}>Diagnóstico Operacional</div>
-        {d ? [
-          ["Térmico", d.temp < LIM.temp.w ? "Faixa nominal" : d.temp < LIM.temp.c ? "Elevação térmica" : "SOBREAQUECIMENTO", d.temp < LIM.temp.w ? C.green : d.temp < LIM.temp.c ? C.amber : C.red],
-          ["Mecânico", d.vibRMS < 2.8 ? "Estável" : d.vibRMS < LIM.vib.w ? "Vibração crescente" : "VIBRAÇÃO CRÍTICA", d.vibRMS < 2.8 ? C.green : d.vibRMS < LIM.vib.w ? C.amber : C.red],
-          ["Tendência", d.score > 70 ? "Operação confiável" : d.score > 40 ? "Requer observação" : "Intervenção necessária", sC],
-          ["Previsão", `~${d.score > 70 ? ">180" : d.score > 40 ? "30–60" : "<15"} dias`, sC],
-        ].map(([lbl, val, col]) => (
-          <div key={lbl} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "4px 0", borderBottom: `1px solid ${C.grid}` }}>
-            <span style={{ fontFamily: U, fontSize: 8, color: C.dim }}>{lbl}</span>
-            <span style={{ fontFamily: M, fontSize: 8, fontWeight: 600, color: col }}>{val}</span>
-          </div>
-        )) : <div style={{ fontFamily: M, fontSize: 9, color: C.dim }}>Ativo offline</div>}
+      <div
+        style={{
+          background: C.panel,
+          borderRadius: 8,
+          padding: "12px 14px",
+          border: `1px solid ${C.borderHi}`,
+          borderLeft: `3px solid ${sC}`,
+        }}
+      >
+        <div
+          style={{
+            fontFamily: U,
+            fontSize: 9,
+            fontWeight: 700,
+            color: sC,
+            textTransform: "uppercase",
+            letterSpacing: "0.1em",
+            marginBottom: 8,
+          }}
+        >
+          Diagnóstico Operacional
+        </div>
+
+        {d ? (
+          [
+            [
+              "Térmico",
+              d.temp < LIM.temp.w ? "Faixa nominal" : d.temp < LIM.temp.c ? "Elevação térmica" : "Sobreaquecimento",
+              d.temp < LIM.temp.w ? C.green : d.temp < LIM.temp.c ? C.amber : C.red,
+            ],
+            [
+              "Mecânico",
+              d.vibRMS < 2.8 ? "Estável" : d.vibRMS < LIM.vib.w ? "Vibração crescente" : "Vibração crítica",
+              d.vibRMS < 2.8 ? C.green : d.vibRMS < LIM.vib.w ? C.amber : C.red,
+            ],
+            [
+              "Tendência",
+              d.score > 70 ? "Operação confiável" : d.score > 40 ? "Requer observação" : "Intervenção recomendada",
+              sC,
+            ],
+            ["Previsão", `~${d.score > 70 ? ">180" : d.score > 40 ? "30–60" : "<15"} dias estimados`, sC],
+          ].map(([lbl, val, col]) => (
+            <div
+              key={lbl}
+              style={{
+                display: "flex",
+                justifyContent: "space-between",
+                alignItems: "center",
+                padding: "4px 0",
+                borderBottom: `1px solid ${C.grid}`,
+              }}
+            >
+              <span style={{ fontFamily: U, fontSize: 8, color: C.dim }}>{lbl}</span>
+              <span style={{ fontFamily: M, fontSize: 8, fontWeight: 600, color: col }}>{val}</span>
+            </div>
+          ))
+        ) : (
+          <div style={{ fontFamily: M, fontSize: 9, color: C.dim }}>Ativo offline</div>
+        )}
       </div>
 
       <div style={{ display: "flex", justifyContent: "flex-end" }}>
-        <button onClick={onExport} style={{ padding: "7px 14px", borderRadius: 6, background: C.blue + "12", color: C.blue, border: `1px solid ${C.blue}55`, cursor: "pointer", fontFamily: M, fontSize: 9, fontWeight: 700, letterSpacing: "0.06em" }}>EXPORTAR CSV</button>
+        <button
+          onClick={onExport}
+          style={{
+            padding: "8px 12px",
+            borderRadius: 6,
+            background: C.blue + "12",
+            color: C.blue,
+            border: `1px solid ${C.blue}55`,
+            cursor: "pointer",
+            fontFamily: M,
+            fontSize: 9,
+            fontWeight: 700,
+          }}
+        >
+          EXPORTAR CSV
+        </button>
       </div>
 
-      <div style={{ background: C.panel, borderRadius: 8, padding: "10px 12px", border: `1px solid ${C.border}`, flex: 1, minHeight: 180 }}>
-        <div style={{ fontFamily: M, fontSize: 8, color: C.dim, marginBottom: 8, textTransform: "uppercase", letterSpacing: "0.1em" }}>Registro de Eventos</div>
-        <div style={{ overflowY: "auto", display: "flex", flexDirection: "column", gap: 3 }}>
-          {alerts.slice(0, 20).map((a, i) => (
-            <div key={a.id ?? i} style={{ display: "flex", gap: 8, alignItems: "flex-start", justifyContent: "space-between", padding: "6px 8px", borderRadius: 4, background: a.type === "CRIT" ? "#fff2f2" : "#fff8e6", borderLeft: `2.5px solid ${a.c}` }}>
-              <div style={{ display: "flex", gap: 6, flex: 1 }}>
-                <span style={{ fontFamily: M, fontSize: 7.5, color: C.dim, minWidth: 54, flexShrink: 0, marginTop: 1 }}>{a.t}</span>
-                <span style={{ fontFamily: M, fontSize: 7.5, color: C.white, lineHeight: 1.4 }}>{a.msg}</span>
-              </div>
-              {a.id && <button onClick={() => onResolve?.(a.id)} style={{ border: `1px solid ${a.c}55`, background: "#ffffff", color: a.c, borderRadius: 4, padding: "4px 8px", cursor: "pointer", fontFamily: M, fontSize: 7, fontWeight: 700, letterSpacing: "0.05em", flexShrink: 0 }}>RESOLVER</button>}
+      <div
+        style={{
+          background: C.panel,
+          borderRadius: 8,
+          padding: "10px 12px",
+          border: `1px solid ${C.border}`,
+          flex: 1,
+          overflow: "hidden",
+          display: "flex",
+          flexDirection: "column",
+          minHeight: 200,
+        }}
+      >
+        <div style={{ fontFamily: M, fontSize: 8, color: C.dim, marginBottom: 8, textTransform: "uppercase", letterSpacing: "0.1em" }}>
+          Registro de Eventos
+        </div>
+        <div style={{ overflowY: "auto", flex: 1, display: "flex", flexDirection: "column", gap: 3 }}>
+          {alerts.slice(0, 18).map((a, i) => (
+            <div
+              key={i}
+              style={{
+                display: "flex",
+                gap: 6,
+                alignItems: "flex-start",
+                padding: "4px 6px",
+                borderRadius: 3,
+                background: a.type === "CRIT" ? "#fff3f3" : a.type === "WARN" ? "#fff8e7" : "#edf5ff",
+                borderLeft: `2px solid ${a.c}`,
+              }}
+            >
+              <span style={{ fontFamily: M, fontSize: 7, color: C.dim, minWidth: 56, flexShrink: 0, marginTop: 1 }}>{a.t}</span>
+              <span style={{ fontFamily: M, fontSize: 7.5, color: C.white, lineHeight: 1.4 }}>{a.msg}</span>
             </div>
           ))}
         </div>
@@ -356,159 +606,498 @@ function AlertPanel({ alerts, d, onExport, onResolve }) {
   );
 }
 
-function StatusBar({ d, running, motorMode, connStatus, modbusOnline }) {
+function StatusBar({ d, running, motorMode }) {
   const st = running ? motorStatus(d) : "PARADO";
   const col = st === "CRÍTICO" ? C.red : st === "ALERTA" ? C.amber : st === "NORMAL" ? C.green : C.dim;
+
   return (
-    <div style={{ background: C.panel, borderTop: `1px solid ${C.border}`, padding: "6px 20px", display: "flex", alignItems: "center", justifyContent: "space-between", flexWrap: "wrap", gap: 8 }}>
-      <div style={{ display: "flex", gap: 18, alignItems: "center", flexWrap: "wrap" }}>
+    <div
+      style={{
+        background: C.panel,
+        borderTop: `1px solid ${C.border}`,
+        padding: "7px 20px",
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "space-between",
+        flexWrap: "wrap",
+        gap: 8,
+      }}
+    >
+      <div style={{ display: "flex", gap: 20, alignItems: "center", flexWrap: "wrap" }}>
         <span style={{ fontFamily: M, fontSize: 9, color: col, fontWeight: 700 }}>● {st}</span>
         <span style={{ fontFamily: M, fontSize: 9, color: C.dim }}>{d?.freq?.toFixed(1) || "0.0"} Hz</span>
         <span style={{ fontFamily: M, fontSize: 9, color: C.dim }}>{d?.rpm?.toFixed(0) || "0"} RPM</span>
         <span style={{ fontFamily: M, fontSize: 9, color: C.dim }}>{d?.temp?.toFixed(1) || "–"}°C</span>
         <span style={{ fontFamily: M, fontSize: 9, color: C.dim }}>{d?.vibRMS?.toFixed(2) || "–"} g</span>
         <span style={{ fontFamily: M, fontSize: 9, color: C.dim }}>{d?.hours?.toFixed(1) || "–"}h</span>
-        <span style={{ fontFamily: M, fontSize: 9, color: motorMode === "MANUTENÇÃO" ? C.orange : C.dimmer }}>MODO: {motorMode}</span>
+        <span style={{ fontFamily: M, fontSize: 9, color: motorMode === "MANUTENÇÃO" ? C.orange : C.dimmer }}>
+          MODO: {motorMode}
+        </span>
       </div>
       <div style={{ display: "flex", gap: 12, alignItems: "center" }}>
-        <ConnBadge ok={modbusOnline} />
-        <span style={{ fontFamily: M, fontSize: 8, color: C.dim }}>BAT {d?.bat?.toFixed(0) || "–"}%</span>
-        <span style={{ fontFamily: M, fontSize: 8, color: C.dim }}>{connStatus}</span>
+        <span style={{ fontFamily: M, fontSize: 8, color: C.dim }}>BATERIA {d?.bat?.toFixed(0) || "–"}%</span>
+        <span style={{ fontFamily: M, fontSize: 8, color: C.dim }}>RTD ● SENSOR 3 EIXOS ● ESP32</span>
+        <span style={{ fontFamily: M, fontSize: 8, color: C.dimmer }}>PAINEL OPERACIONAL</span>
       </div>
     </div>
   );
 }
 
-function useMotorData({ running, onAlert }) {
-  const [live, setLive] = useState(null);
-  const [hist, setHist] = useState([]);
-  const [connStatus, setConnStatus] = useState("API");
-  const prevAlertRef = useRef("");
-
-  useEffect(() => {
-    let active = true;
-
-    const cycle = async () => {
-      try {
-        const collectResponse = await fetch(`${API_BASE_URL}/modbus/collect`, { method: "POST" });
-        if (!collectResponse.ok) throw new Error(`Collect HTTP ${collectResponse.status}`);
-
-        const machineResponse = await fetch(`${API_BASE_URL}/machines/1/latest`);
-        if (!machineResponse.ok) throw new Error(`Machine HTTP ${machineResponse.status}`);
-
-        const raw = await machineResponse.json();
-        if (!active) return;
-
-        const d = mapApiResponse(raw);
-        setLive(d);
-        setHist((h) => [...h, d].slice(-80));
-        setConnStatus("API ✓");
-
-        const newAlerts = [];
-        if (d.temp >= LIM.temp.c) newAlerts.push({ type: "CRIT", msg: `Temperatura crítica ${d.temp.toFixed(1)}°C`, t: d.t, c: C.red });
-        else if (d.temp >= LIM.temp.w) newAlerts.push({ type: "WARN", msg: `Elevação térmica ${d.temp.toFixed(1)}°C`, t: d.t, c: C.amber });
-
-        if (d.vibRMS >= LIM.vib.c) newAlerts.push({ type: "CRIT", msg: `Vibração crítica ${d.vibRMS.toFixed(2)} g`, t: d.t, c: C.red });
-        else if (d.vibRMS >= LIM.vib.w) newAlerts.push({ type: "WARN", msg: `Vibração elevada ${d.vibRMS.toFixed(2)} g`, t: d.t, c: C.amber });
-
-        const signature = JSON.stringify(newAlerts.map((a) => `${a.type}-${a.msg}`));
-        if (newAlerts.length && prevAlertRef.current !== signature) {
-          prevAlertRef.current = signature;
-          onAlert(newAlerts);
-        }
-        if (!newAlerts.length) prevAlertRef.current = "";
-      } catch (err) {
-        if (active) setConnStatus("API ERR");
-        console.error("Erro no ciclo de dados:", err);
-      }
-    };
-
-    cycle();
-    const id = setInterval(cycle, API_POLL_MS);
-
-    return () => {
-      active = false;
-      clearInterval(id);
-    };
-  }, [running, onAlert]);
-
-  return { live, hist, connStatus };
-}
-
-function MotorControlModal({ d, motorMode, setMotorMode, running, setRunning, freqSP, setFreqSP, ramp, setRamp, degrad, setDegrad, onClose }) {
+function MotorControlModal({
+  d,
+  motorMode,
+  setMotorMode,
+  running,
+  setRunning,
+  freqSP,
+  setFreqSP,
+  ramp,
+  setRamp,
+  degrad,
+  setDegrad,
+  onClose,
+}) {
   const status = motorMode === "MANUTENÇÃO" ? "MANUTENÇÃO" : motorStatus(d);
   const statusCol = status === "CRÍTICO" ? C.red : status === "ALERTA" ? C.amber : status === "NORMAL" ? C.green : C.orange;
-  const checklist = [
-    "Verificar lubrificação dos rolamentos",
-    "Medir temperatura da carcaça (PT100)",
-    "Testar vibração em bancada (ADXL345)",
-    "Verificar alinhamento eixo/acoplamento",
-    "Limpar aletas e filtros de resfriamento",
-    "Checar aperto dos bornes elétricos R·S·T",
-    "Testar isolação do enrolamento (megôhmetro)",
-    "Calibrar sensores ESP32 + firmware",
-  ];
-  const [checked, setChecked] = useState(() => Array(checklist.length).fill(false));
-  const toggleCheck = (idx) => setChecked((prev) => prev.map((v, i) => (i === idx ? !v : v)));
+  const [activeTab, setActiveTab] = useState("controle");
 
   return (
-    <div style={{ position: "fixed", inset: 0, zIndex: 1000, background: "rgba(10,20,40,0.35)", display: "flex", alignItems: "center", justifyContent: "center", padding: "20px" }} onClick={(e) => e.target === e.currentTarget && onClose()}>
-      <div style={{ background: C.bg2, border: `1px solid ${C.borderHi}`, borderTop: `3px solid ${statusCol}`, borderRadius: 10, width: "100%", maxWidth: 760, boxShadow: "0 16px 40px rgba(5,30,70,0.14)", overflow: "hidden", maxHeight: "90vh", display: "flex", flexDirection: "column" }}>
-        <div style={{ background: C.panel, padding: "14px 20px", display: "flex", alignItems: "center", justifyContent: "space-between", borderBottom: `1px solid ${C.border}` }}>
+    <div
+      style={{
+        position: "fixed",
+        inset: 0,
+        zIndex: 1000,
+        background: "rgba(80,95,110,0.35)",
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+        padding: "20px",
+      }}
+      onClick={(e) => e.target === e.currentTarget && onClose()}
+    >
+      <div
+        style={{
+          background: C.bg2,
+          border: `1px solid ${C.borderHi}`,
+          borderTop: `3px solid ${statusCol}`,
+          borderRadius: 10,
+          width: "100%",
+          maxWidth: 760,
+          boxShadow: "0 16px 34px rgba(16,24,40,0.12)",
+          overflow: "hidden",
+          maxHeight: "90vh",
+          display: "flex",
+          flexDirection: "column",
+        }}
+      >
+        <div
+          style={{
+            background: C.panel,
+            padding: "14px 20px",
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+            borderBottom: `1px solid ${C.border}`,
+          }}
+        >
           <div>
             <div style={{ fontFamily: M, fontSize: 12, fontWeight: 700, color: C.white }}>PAINEL DE CONTROLE OPERACIONAL</div>
-            <div style={{ fontFamily: M, fontSize: 8, color: C.dim }}>MOTOR WEG 3HP · CFW500 · TM221 · ESP32 · SM-001</div>
+            <div style={{ fontFamily: M, fontSize: 8, color: C.dim }}>MOTOR WEG 3HP · CFW500 · TM221 · ESP32</div>
           </div>
-          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-            <span style={{ fontFamily: M, fontSize: 10, fontWeight: 700, color: statusCol, background: statusCol + "18", border: `1px solid ${statusCol}55`, borderRadius: 4, padding: "3px 10px" }}>{status}</span>
-            <button onClick={onClose} style={{ background: "transparent", border: `1px solid ${C.border}`, borderRadius: 4, color: C.dim, cursor: "pointer", fontFamily: M, fontSize: 11, width: 28, height: 28 }}>✕</button>
-          </div>
+          <button
+            onClick={onClose}
+            style={{
+              background: "transparent",
+              border: `1px solid ${C.border}`,
+              borderRadius: 4,
+              color: C.dim,
+              cursor: "pointer",
+              fontFamily: M,
+              fontSize: 11,
+              width: 28,
+              height: 28,
+            }}
+          >
+            ✕
+          </button>
         </div>
 
-        <div style={{ padding: "18px 20px", overflowY: "auto", display: "grid", gap: 12 }}>
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(140px,1fr))", gap: 8 }}>
-            <TileKPI label="Temperatura" value={d?.temp?.toFixed(1) || "--"} unit="°C" color={d ? gc(d.temp, LIM.temp) : C.dim} />
-            <TileKPI label="Vibração" value={d?.vibRMS?.toFixed(2) || "--"} unit="g" color={d ? gc(d.vibRMS, LIM.vib) : C.dim} />
-            <TileKPI label="Saúde" value={d?.score || "--"} unit="/100" color={d ? (d.score > 70 ? C.green : d.score > 40 ? C.amber : C.red) : C.dim} />
-            <TileKPI label="RPM" value={d?.rpm?.toFixed(0) || "--"} unit="rpm" color={C.blue} />
-          </div>
+        <div style={{ display: "flex", borderBottom: `1px solid ${C.border}`, background: C.panel, flexWrap: "wrap" }}>
+          {[
+            ["controle", "CONTROLE"],
+            ["partida", "PARTIDA/PARADA"],
+            ["manutencao", "MANUTENÇÃO"],
+            ["horas", "HORÍMETRO"],
+          ].map(([id, lbl]) => (
+            <button
+              key={id}
+              onClick={() => setActiveTab(id)}
+              style={{
+                padding: "9px 16px",
+                border: "none",
+                background: "transparent",
+                borderBottom: `2px solid ${activeTab === id ? C.blue : "transparent"}`,
+                color: activeTab === id ? C.blue : C.dim,
+                fontFamily: U,
+                fontSize: 10,
+                fontWeight: activeTab === id ? 700 : 500,
+                cursor: "pointer",
+                letterSpacing: "0.07em",
+              }}
+            >
+              {lbl}
+            </button>
+          ))}
+        </div>
 
-          <div style={{ background: C.panel, borderRadius: 8, padding: "14px 16px", border: `1px solid ${C.border}` }}>
-            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10 }}>
-              <div style={{ fontFamily: U, fontSize: 10, fontWeight: 600, color: C.dim, textTransform: "uppercase", letterSpacing: "0.1em" }}>Frequência — CFW500</div>
-              <div style={{ fontFamily: M, fontSize: 20, fontWeight: 700, color: C.blue }}>{freqSP} <span style={{ fontSize: 11, color: C.dim }}>Hz</span></div>
-            </div>
-            <input type="range" min="30" max="60" step="0.5" value={freqSP} onChange={(e) => setFreqSP(+e.target.value)} disabled={motorMode === "MANUTENÇÃO"} style={{ width: "100%", accentColor: C.blue }} />
-          </div>
-
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(240px,1fr))", gap: 10 }}>
-            <div style={{ background: C.panel, borderRadius: 8, padding: "12px 14px", border: `1px solid ${C.border}` }}>
-              <div style={{ fontFamily: U, fontSize: 9, color: C.dim, textTransform: "uppercase", letterSpacing: "0.1em", marginBottom: 8 }}>Rampa de aceleração</div>
-              <div style={{ fontFamily: M, fontSize: 18, fontWeight: 700, color: C.orange }}>{ramp}s</div>
-              <input type="range" min="1" max="30" step="1" value={ramp} onChange={(e) => setRamp(+e.target.value)} style={{ width: "100%", accentColor: C.orange, marginTop: 6 }} />
-            </div>
-
-            <div style={{ background: C.panel, borderRadius: 8, padding: "12px 14px", border: `1px solid ${C.border}` }}>
-              <div style={{ fontFamily: U, fontSize: 9, color: C.dim, textTransform: "uppercase", letterSpacing: "0.1em", marginBottom: 8 }}>Desgaste simulado</div>
-              <div style={{ fontFamily: M, fontSize: 18, fontWeight: 700, color: degrad > 70 ? C.red : degrad > 40 ? C.amber : C.green }}>{degrad}%</div>
-              <input type="range" min="0" max="100" step="1" value={degrad} onChange={(e) => setDegrad(+e.target.value)} style={{ width: "100%", accentColor: degrad > 70 ? C.red : degrad > 40 ? C.amber : C.green, marginTop: 6 }} />
-            </div>
-          </div>
-
-          <div style={{ display: "flex", gap: 14, flexWrap: "wrap" }}>
-            <button onClick={() => { if (motorMode !== "MANUTENÇÃO") setRunning(true); }} style={{ padding: "14px 20px", borderRadius: 8, cursor: motorMode === "MANUTENÇÃO" ? "not-allowed" : "pointer", fontFamily: M, fontSize: 12, fontWeight: 700, color: C.green, background: "#edfaf4", border: `2px solid ${C.green}`, opacity: motorMode === "MANUTENÇÃO" ? 0.4 : 1 }}>▶ PARTIDA</button>
-            <button onClick={() => setRunning(false)} style={{ padding: "14px 20px", borderRadius: 8, cursor: "pointer", fontFamily: M, fontSize: 12, fontWeight: 700, color: C.red, background: "#fff2f2", border: `2px solid ${C.red}` }}>■ PARADA</button>
-            <button onClick={() => { if (motorMode === "MANUTENÇÃO") setMotorMode("AUTO"); else { setMotorMode("MANUTENÇÃO"); setRunning(false); } }} style={{ padding: "14px 20px", borderRadius: 8, cursor: "pointer", fontFamily: M, fontSize: 12, fontWeight: 700, color: motorMode === "MANUTENÇÃO" ? C.green : C.orange, background: motorMode === "MANUTENÇÃO" ? "#edfaf4" : "#fff6e8", border: `2px solid ${motorMode === "MANUTENÇÃO" ? C.green : C.orange}` }}>⚙ {motorMode === "MANUTENÇÃO" ? "LIBERAR OPERAÇÃO" : "ATIVAR MANUTENÇÃO"}</button>
-          </div>
-
-          <div style={{ background: C.panel, borderRadius: 8, padding: "14px 16px", border: `1px solid ${C.border}` }}>
-            <div style={{ fontFamily: U, fontSize: 9, fontWeight: 700, color: C.dim, textTransform: "uppercase", letterSpacing: "0.1em", marginBottom: 10 }}>Checklist de Inspeção</div>
-            {checklist.map((item, i) => (
-              <div key={i} onClick={() => toggleCheck(i)} style={{ display: "flex", alignItems: "center", gap: 10, padding: "6px 8px", borderRadius: 4, cursor: "pointer", background: i % 2 === 0 ? C.panelHi : "transparent", marginBottom: 3 }}>
-                <span style={{ fontFamily: M, fontSize: 12, color: checked[i] ? C.green : C.dim }}>{checked[i] ? "☑" : "☐"}</span>
-                <span style={{ fontFamily: U, fontSize: 9, color: checked[i] ? C.white : C.dim, textDecoration: checked[i] ? "line-through" : "none" }}>{item}</span>
+        <div style={{ padding: "18px 20px", overflowY: "auto" }}>
+          {activeTab === "controle" && (
+            <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(140px,1fr))", gap: 8 }}>
+                <TileKPI small label="Temperatura" value={d?.temp?.toFixed(1) || "--"} unit="°C" color={d ? gc(d.temp, LIM.temp) : C.dim} />
+                <TileKPI small label="Vibração Global" value={d?.vibRMS?.toFixed(2) || "--"} unit="g" color={d ? gc(d.vibRMS, LIM.vib) : C.dim} />
+                <TileKPI small label="Eixos" value={d ? `${d.ax.toFixed(1)} / ${d.ay.toFixed(1)} / ${d.az.toFixed(1)}` : "--"} unit="g" color={C.blue} />
+                <TileKPI small label="Saúde" value={d?.score || "--"} unit="/100" color={d ? (d.score > 70 ? C.green : d.score > 40 ? C.amber : C.red) : C.dim} />
               </div>
-            ))}
+
+              <div style={{ background: C.panel, borderRadius: 8, padding: "14px 16px", border: `1px solid ${C.border}` }}>
+                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10 }}>
+                  <div style={{ fontFamily: U, fontSize: 10, fontWeight: 600, color: C.dim, textTransform: "uppercase", letterSpacing: "0.1em" }}>
+                    Frequência de Operação
+                  </div>
+                  <div style={{ fontFamily: M, fontSize: 20, fontWeight: 700, color: C.blue }}>
+                    {freqSP} <span style={{ fontSize: 11, color: C.dim }}>Hz</span>
+                  </div>
+                </div>
+                <input
+                  type="range"
+                  min="30"
+                  max="60"
+                  step="0.5"
+                  value={freqSP}
+                  onChange={(e) => setFreqSP(+e.target.value)}
+                  disabled={motorMode === "MANUTENÇÃO"}
+                  style={{ width: "100%", accentColor: C.blue }}
+                />
+              </div>
+
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(240px,1fr))", gap: 10 }}>
+                <div style={{ background: C.panel, borderRadius: 8, padding: "12px 14px", border: `1px solid ${C.border}` }}>
+                  <div style={{ fontFamily: U, fontSize: 9, color: C.dim, textTransform: "uppercase", letterSpacing: "0.1em", marginBottom: 8 }}>
+                    Rampa
+                  </div>
+                  <div style={{ fontFamily: M, fontSize: 18, fontWeight: 700, color: C.orange }}>{ramp}s</div>
+                  <input type="range" min="1" max="30" step="1" value={ramp} onChange={(e) => setRamp(+e.target.value)} style={{ width: "100%", accentColor: C.orange, marginTop: 6 }} />
+                </div>
+
+                <div style={{ background: C.panel, borderRadius: 8, padding: "12px 14px", border: `1px solid ${C.border}` }}>
+                  <div style={{ fontFamily: U, fontSize: 9, color: C.dim, textTransform: "uppercase", letterSpacing: "0.1em", marginBottom: 8 }}>
+                    Degradação Simulada
+                  </div>
+                  <div style={{ fontFamily: M, fontSize: 18, fontWeight: 700, color: degrad > 70 ? C.red : degrad > 40 ? C.amber : C.green }}>
+                    {degrad}%
+                  </div>
+                  <input type="range" min="0" max="100" step="1" value={degrad} onChange={(e) => setDegrad(+e.target.value)} style={{ width: "100%", accentColor: degrad > 70 ? C.red : degrad > 40 ? C.amber : C.green, marginTop: 6 }} />
+                </div>
+              </div>
+            </div>
+          )}
+
+          {activeTab === "partida" && (
+            <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+
+              {/* Preset de rampa — configurar ANTES de ligar */}
+              <div style={{ background: C.panel, borderRadius: 8, padding: "14px 16px", border: `1px solid ${C.border}` }}>
+                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10 }}>
+                  <div style={{ fontFamily: U, fontSize: 10, fontWeight: 600, color: C.dim, textTransform: "uppercase", letterSpacing: "0.1em" }}>
+                    Rampa de Aceleração
+                  </div>
+                  <div style={{ fontFamily: M, fontSize: 20, fontWeight: 700, color: C.orange }}>
+                    {ramp}s
+                  </div>
+                </div>
+                {/* Presets rápidos */}
+                <div style={{ display: "flex", gap: 6, marginBottom: 10 }}>
+                  {[
+                    [3,  "Rápida"],
+                    [5,  "Normal"],
+                    [10, "Suave"],
+                    [20, "Lenta"],
+                    [30, "Muito lenta"],
+                  ].map(([val, label]) => (
+                    <button
+                      key={val}
+                      onClick={() => setRamp(val)}
+                      disabled={motorMode === "MANUTENÇÃO"}
+                      style={{
+                        flex: 1,
+                        padding: "6px 4px",
+                        borderRadius: 5,
+                        cursor: motorMode === "MANUTENÇÃO" ? "not-allowed" : "pointer",
+                        fontFamily: M,
+                        fontSize: 8,
+                        fontWeight: ramp === val ? 700 : 400,
+                        color:      ramp === val ? C.orange : C.dim,
+                        background: ramp === val ? "#fff6e8" : C.panelHi,
+                        border:    `1px solid ${ramp === val ? C.orange : C.border}`,
+                        opacity: motorMode === "MANUTENÇÃO" ? 0.4 : 1,
+                      }}
+                    >
+                      {val}s<br/>
+                      <span style={{ fontSize: 7, fontWeight: 400 }}>{label}</span>
+                    </button>
+                  ))}
+                </div>
+                <input
+                  type="range" min="1" max="30" step="1" value={ramp}
+                  onChange={(e) => setRamp(+e.target.value)}
+                  disabled={motorMode === "MANUTENÇÃO"}
+                  style={{ width: "100%", accentColor: C.orange }}
+                />
+                <div style={{ display: "flex", justifyContent: "space-between", fontFamily: M, fontSize: 7, color: C.dimmer, marginTop: 3 }}>
+                  <span>1s (mín)</span><span>15s</span><span>30s (máx)</span>
+                </div>
+              </div>
+
+              {/* Botões partida / parada */}
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(220px,1fr))", gap: 14 }}>
+              <button
+                onClick={() => {
+                  if (motorMode !== "MANUTENÇÃO") setRunning(true);
+                }}
+                style={{
+                  padding: "24px",
+                  borderRadius: 8,
+                  cursor: motorMode === "MANUTENÇÃO" ? "not-allowed" : "pointer",
+                  fontFamily: M,
+                  fontSize: 14,
+                  fontWeight: 700,
+                  color: C.green,
+                  background: "#eefaf4",
+                  border: `2px solid ${C.green}`,
+                  opacity: motorMode === "MANUTENÇÃO" ? 0.4 : 1,
+                }}
+              >
+                PARTIDA
+              </button>
+
+              <button
+                onClick={() => setRunning(false)}
+                style={{
+                  padding: "24px",
+                  borderRadius: 8,
+                  cursor: "pointer",
+                  fontFamily: M,
+                  fontSize: 14,
+                  fontWeight: 700,
+                  color: C.red,
+                  background: "#fff3f3",
+                  border: `2px solid ${C.red}`,
+                }}
+              >
+                PARADA
+              </button>
+            </div>
+            </div>
+          )}
+
+          {activeTab === "manutencao" && (
+            <div style={{ background: C.panel, borderRadius: 8, padding: "16px", border: `1px solid ${C.border}` }}>
+              <div style={{ fontFamily: U, fontSize: 11, fontWeight: 700, color: C.white, marginBottom: 8 }}>
+                Bloqueio de Operação para Inspeção
+              </div>
+              <button
+                onClick={() => {
+                  if (motorMode === "MANUTENÇÃO") {
+                    setMotorMode("AUTO");
+                  } else {
+                    setMotorMode("MANUTENÇÃO");
+                    setRunning(false);
+                  }
+                }}
+                style={{
+                  padding: "8px 18px",
+                  borderRadius: 5,
+                  cursor: "pointer",
+                  fontFamily: M,
+                  fontSize: 10,
+                  fontWeight: 700,
+                  color: motorMode === "MANUTENÇÃO" ? C.green : C.orange,
+                  background: motorMode === "MANUTENÇÃO" ? "#eefaf4" : "#fff6e8",
+                  border: `1px solid ${motorMode === "MANUTENÇÃO" ? C.green : C.orange}`,
+                }}
+              >
+                {motorMode === "MANUTENÇÃO" ? "LIBERAR OPERAÇÃO" : "ATIVAR MANUTENÇÃO"}
+              </button>
+            </div>
+          )}
+
+          {activeTab === "horas" && (
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit,minmax(160px,1fr))", gap: 10 }}>
+              <TileKPI small label="Horas totais" value={d ? d.hours.toFixed(1) : "--"} unit="h" color={C.blue} />
+              <TileKPI small label="Desde a manutenção" value={d ? (d.hours % 500).toFixed(1) : "--"} unit="h" color={C.teal} />
+              <TileKPI small label="Próxima manutenção" value={d ? Math.max(0, 500 - (d.hours % 500)).toFixed(0) : "--"} unit="h" color={C.amber} />
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function CenterPanel({
+  st,
+  running,
+  motorMode,
+  setMotorMode,
+  setRunning,
+  freqSP,
+  setFreqSP,
+  degrad,
+  hist,
+  setModalOpen,
+  compact = false,
+}) {
+  return (
+    <div style={{ display: "flex", flexDirection: "column", overflowY: "auto" }}>
+      <div style={{ padding: compact ? "18px 12px 8px" : "24px 28px 10px", display: "flex", flexDirection: "column", alignItems: "center" }}>
+        <MotorSVG status={st} running={running} onClick={() => setModalOpen(true)} />
+      </div>
+
+      <div style={{ padding: compact ? "4px 12px 12px" : "4px 28px 12px", display: "flex", gap: 8, justifyContent: "center", flexWrap: "wrap" }}>
+        <button
+          onClick={() => setModalOpen(true)}
+          style={{
+            padding: "8px 20px",
+            borderRadius: 6,
+            cursor: "pointer",
+            fontFamily: M,
+            fontSize: 9,
+            fontWeight: 700,
+            letterSpacing: "0.1em",
+            color: C.blue,
+            background: "#edf5ff",
+            border: `1px solid ${C.blue}55`,
+          }}
+        >
+          PAINEL DE CONTROLE
+        </button>
+
+        <button
+          onClick={() => {
+            if (motorMode !== "MANUTENÇÃO") setRunning((v) => !v);
+          }}
+          style={{
+            padding: "8px 20px",
+            borderRadius: 6,
+            cursor: "pointer",
+            fontFamily: M,
+            fontSize: 9,
+            fontWeight: 700,
+            letterSpacing: "0.1em",
+            color: running ? C.red : C.green,
+            background: running ? "#fff3f3" : "#eefaf4",
+            border: `1px solid ${running ? C.red : C.green}55`,
+            opacity: motorMode === "MANUTENÇÃO" ? 0.4 : 1,
+          }}
+        >
+          {running ? "PARAR" : "LIGAR"}
+        </button>
+
+        <button
+          onClick={() => {
+            if (motorMode === "MANUTENÇÃO") {
+              setMotorMode("AUTO");
+            } else {
+              setMotorMode("MANUTENÇÃO");
+              setRunning(false);
+            }
+          }}
+          style={{
+            padding: "8px 20px",
+            borderRadius: 6,
+            cursor: "pointer",
+            fontFamily: M,
+            fontSize: 9,
+            fontWeight: 700,
+            letterSpacing: "0.1em",
+            color: motorMode === "MANUTENÇÃO" ? C.orange : C.dim,
+            background: motorMode === "MANUTENÇÃO" ? "#fff6e8" : C.panel,
+            border: `1px solid ${motorMode === "MANUTENÇÃO" ? C.orange : C.border}`,
+          }}
+        >
+          MANUTENÇÃO
+        </button>
+      </div>
+
+      <div style={{ padding: compact ? "4px 12px 14px" : "4px 18px 14px", display: "grid", gridTemplateColumns: compact ? "1fr" : "1fr 1fr", gap: 10 }}>
+        <div style={{ background: C.panel, borderRadius: 8, padding: "10px 12px", border: `1px solid ${C.border}` }}>
+          <div style={{ fontFamily: M, fontSize: 8, color: C.dim, marginBottom: 6, textTransform: "uppercase", letterSpacing: "0.1em" }}>
+            Índice de Saúde
+          </div>
+          <ResponsiveContainer width="100%" height={100}>
+            <AreaChart data={hist.slice(-30)}>
+              <defs>
+                <linearGradient id="gscore" x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="5%" stopColor={C.green} stopOpacity={0.22} />
+                  <stop offset="95%" stopColor={C.green} stopOpacity={0} />
+                </linearGradient>
+              </defs>
+              <CartesianGrid strokeDasharray="2 6" stroke={C.grid} />
+              <XAxis dataKey="t" tick={{ fontSize: 6, fill: C.dim, fontFamily: M }} interval="preserveStartEnd" />
+              <YAxis tick={{ fontSize: 6, fill: C.dim, fontFamily: M }} width={20} domain={[0, 100]} />
+              <Tooltip content={<CustomTooltip />} />
+              <ReferenceLine y={40} stroke={C.amber} strokeDasharray="3 2" strokeWidth={0.8} />
+              <Area type="monotone" dataKey="score" name="Saúde" stroke={C.green} fill="url(#gscore)" dot={false} strokeWidth={1.5} />
+            </AreaChart>
+          </ResponsiveContainer>
+        </div>
+
+        <div style={{ background: C.panel, borderRadius: 8, padding: "10px 12px", border: `1px solid ${C.border}` }}>
+          <div style={{ fontFamily: M, fontSize: 8, color: C.dim, marginBottom: 6, textTransform: "uppercase", letterSpacing: "0.1em" }}>
+            Vibração por Eixo
+          </div>
+          <ResponsiveContainer width="100%" height={100}>
+            <LineChart data={hist.slice(-30)}>
+              <CartesianGrid strokeDasharray="2 6" stroke={C.grid} />
+              <XAxis dataKey="t" tick={{ fontSize: 6, fill: C.dim, fontFamily: M }} interval="preserveStartEnd" />
+              <YAxis tick={{ fontSize: 6, fill: C.dim, fontFamily: M }} width={22} />
+              <Tooltip content={<CustomTooltip />} />
+              <Line type="monotone" dataKey="ax" name="Eixo X" stroke={C.blue} dot={false} strokeWidth={1.4} />
+              <Line type="monotone" dataKey="ay" name="Eixo Y" stroke="#6d7f91" dot={false} strokeWidth={1.4} />
+              <Line type="monotone" dataKey="az" name="Eixo Z" stroke={C.teal} dot={false} strokeWidth={1.4} />
+            </LineChart>
+          </ResponsiveContainer>
+        </div>
+      </div>
+
+      <div style={{ padding: compact ? "0 12px 18px" : "0 18px 18px" }}>
+        <div
+          style={{
+            background: C.panel,
+            borderRadius: 8,
+            padding: "12px 16px",
+            border: `1px solid ${C.border}`,
+            display: "flex",
+            alignItems: "center",
+            gap: 14,
+          }}
+        >
+          <div style={{ fontFamily: U, fontSize: 9, color: C.dim, textTransform: "uppercase", letterSpacing: "0.1em", minWidth: 110 }}>
+            Frequência do Inversor
+          </div>
+          <input
+            type="range"
+            min="30"
+            max="60"
+            step="0.5"
+            value={freqSP}
+            onChange={(e) => setFreqSP(+e.target.value)}
+            style={{ flex: 1, accentColor: C.blue }}
+            disabled={motorMode === "MANUTENÇÃO"}
+          />
+          <div style={{ fontFamily: M, fontSize: 18, fontWeight: 700, color: C.blue, minWidth: 64 }}>
+            {freqSP} <span style={{ fontSize: 10, color: C.dim }}>Hz</span>
           </div>
         </div>
       </div>
@@ -516,210 +1105,307 @@ function MotorControlModal({ d, motorMode, setMotorMode, running, setRunning, fr
   );
 }
 
+const defaultAlerts = [
+  { type: "SYS", msg: "Painel operacional iniciado", t: new Date().toLocaleTimeString("pt-BR"), c: C.blue },
+  { type: "SYS", msg: "Sensoriamento térmico e vibracional ativo", t: new Date().toLocaleTimeString("pt-BR"), c: C.green },
+  { type: "SYS", msg: "CLP e inversor em modo bancada", t: new Date().toLocaleTimeString("pt-BR"), c: C.teal },
+  { type: "SYS", msg: "Monitoramento de condição pronto", t: new Date().toLocaleTimeString("pt-BR"), c: C.blue },
+];
+
 export default function App() {
-  const [motorMode, setMotorMode] = useState("AUTO");
+  const [live, setLive] = useState(null);
+  const [hist, setHist] = useState([]);
   const [running, setRunning] = useState(true);
+  const [motorMode, setMotorMode] = useState("AUTO");
   const [freqSP, setFreqSP] = useState(60);
   const [ramp, setRamp] = useState(5);
   const [degrad, setDegrad] = useState(30);
   const [modalOpen, setModalOpen] = useState(false);
   const [alerts, setAlerts] = useState(defaultAlerts);
-  const [backendAlerts, setBackendAlerts] = useState([]);
-  const [modbusOnline, setModbusOnline] = useState(false);
-  const [persistentAlarm, setPersistentAlarm] = useState(null);
+  const [screen, setScreen] = useState(typeof window !== "undefined" ? window.innerWidth : 1400);
+  const [wsConnected, setWsConnected] = useState(false);
 
-  const pushLocalAlerts = useCallback((newAlerts) => {
-    setAlerts((prev) => {
-      const withIds = newAlerts.map((a, idx) => ({ ...a, id: `local-${Date.now()}-${idx}` }));
-      return [...withIds, ...prev].slice(0, 50);
-    });
-  }, []);
-
-  const { live, hist, connStatus } = useMotorData({ running, onAlert: pushLocalAlerts });
+  const prev  = useRef(null);
+  const wsRef = useRef(null);
 
   useEffect(() => {
-    if (!live) {
-      setPersistentAlarm(null);
-      return;
-    }
-    if (live.temp >= LIM.temp.c) {
-      setPersistentAlarm({ level: "CRIT", title: "ALARME CRÍTICO — TEMPERATURA", message: `O motor atingiu ${live.temp.toFixed(1)}°C, acima do limite crítico de ${LIM.temp.c}°C.` });
-      return;
-    }
-    if (live.vibRMS >= LIM.vib.c) {
-      setPersistentAlarm({ level: "CRIT", title: "ALARME CRÍTICO — VIBRAÇÃO", message: `A vibração global atingiu ${live.vibRMS.toFixed(2)} g, acima do limite crítico de ${LIM.vib.c} g.` });
-      return;
-    }
-    if (live.temp >= LIM.temp.w) {
-      setPersistentAlarm({ level: "WARN", title: "ALERTA — TEMPERATURA", message: `O motor está em ${live.temp.toFixed(1)}°C, acima do limite de atenção de ${LIM.temp.w}°C.` });
-      return;
-    }
-    if (live.vibRMS >= LIM.vib.w) {
-      setPersistentAlarm({ level: "WARN", title: "ALERTA — VIBRAÇÃO", message: `A vibração global está em ${live.vibRMS.toFixed(2)} g, acima do limite de atenção de ${LIM.vib.w} g.` });
-      return;
-    }
-    setPersistentAlarm(null);
-  }, [live]);
-
-  const loadBackendAlerts = useCallback(async () => {
     try {
-      const response = await fetch(`${API_BASE_URL}/alerts`);
-      if (!response.ok) throw new Error(`Erro HTTP ${response.status}`);
-      const data = await response.json();
-      setBackendAlerts(data.filter((alert) => !alert.resolved));
-    } catch (error) {
-      console.error("Erro ao carregar alertas:", error);
-    }
+      const raw = localStorage.getItem(STORAGE_KEY);
+      if (!raw) return;
+      const parsed = JSON.parse(raw);
+      setRunning(parsed.running ?? true);
+      setMotorMode(parsed.motorMode ?? "AUTO");
+      setFreqSP(parsed.freqSP ?? 60);
+      setRamp(parsed.ramp ?? 5);
+      setDegrad(parsed.degrad ?? 30);
+      setAlerts(parsed.alerts?.length ? parsed.alerts : defaultAlerts);
+    } catch {}
   }, []);
-
-  const loadModbusStatus = useCallback(async () => {
-    try {
-      const response = await fetch(`${API_BASE_URL}/modbus/test`);
-      if (!response.ok) throw new Error(`Erro HTTP ${response.status}`);
-      const result = await response.json();
-      setModbusOnline(result.status === "ok");
-    } catch (error) {
-      console.error("Erro ao testar Modbus:", error);
-      setModbusOnline(false);
-    }
-  }, []);
-
-  const resolveBackendAlert = useCallback(async (alertId) => {
-    try {
-      const response = await fetch(`${API_BASE_URL}/alerts/${alertId}/resolve`, { method: "PATCH" });
-      if (!response.ok) throw new Error(`Erro HTTP ${response.status}`);
-      await response.json();
-      loadBackendAlerts();
-    } catch (error) {
-      console.error("Erro ao resolver alerta:", error);
-    }
-  }, [loadBackendAlerts]);
 
   useEffect(() => {
-    loadBackendAlerts();
-    loadModbusStatus();
-    const id = setInterval(() => {
-      loadBackendAlerts();
-      loadModbusStatus();
-    }, 3000);
-    return () => clearInterval(id);
-  }, [loadBackendAlerts, loadModbusStatus]);
+    localStorage.setItem(
+      STORAGE_KEY,
+      JSON.stringify({
+        running,
+        motorMode,
+        freqSP,
+        ramp,
+        degrad,
+        alerts: alerts.slice(0, 100),
+      })
+    );
+  }, [running, motorMode, freqSP, ramp, degrad, alerts]);
 
-  const dashboardAlerts = useMemo(() => {
-    const mappedBackend = backendAlerts.map((alert) => ({
-      id: alert.id,
-      type: alert.severity === "critical" ? "CRIT" : "WARN",
-      msg: `M${alert.machine_id} • ${alert.message}`,
-      t: new Date(alert.timestamp).toLocaleTimeString("pt-BR"),
-      c: alert.severity === "critical" ? C.red : C.amber,
-    }));
-    return [...mappedBackend, ...alerts].slice(0, 50);
-  }, [backendAlerts, alerts]);
+  useEffect(() => {
+    const onResize = () => setScreen(window.innerWidth);
+    window.addEventListener("resize", onResize);
+    return () => window.removeEventListener("resize", onResize);
+  }, []);
 
-  const st = motorStatus(live);
+  // ── WebSocket — dados ao vivo do backend ─────────────────────────────────
+  useEffect(() => {
+    if (DATA_SOURCE !== "ws") return;
+    let reconnectTimer = null;
+
+    function connect() {
+      const ws = new WebSocket(WS_URL);
+      wsRef.current = ws;
+
+      ws.onopen = () => {
+        setWsConnected(true);
+        setAlerts(a => [{
+          type: "SYS", msg: "WebSocket conectado — dados ao vivo do backend",
+          t: new Date().toLocaleTimeString("pt-BR"), c: C.teal,
+        }, ...a].slice(0, 200));
+      };
+
+      ws.onmessage = (evt) => {
+        try {
+          const raw = JSON.parse(evt.data);
+          const d = {
+            temp:   raw.temp   ?? raw.temperatura   ?? 0,
+            ax:     raw.ax     ?? raw.vibration_x   ?? 0,
+            ay:     raw.ay     ?? raw.vibration_y   ?? 0,
+            az:     raw.az     ?? raw.vibration_z   ?? 0,
+            vibRMS: raw.vibRMS ?? raw.vibration_rms ?? 0,
+            freq:   raw.freq   ?? raw.frequencia_hz ?? 0,
+            rpm:    raw.rpm    ?? 0,
+            hours:  raw.hours  ?? raw.horas_operacao ?? 0,
+            score:  raw.score  ?? raw.saude_score   ?? 0,
+            bat:    raw.bat    ?? 100,
+            t:      raw.t      ?? new Date().toLocaleTimeString("pt-BR"),
+            source: "ws",
+          };
+          prev.current = d;
+          setLive(d);
+          setHist(h => [...h, d].slice(-80));
+
+          const t = d.t; const evts = [];
+          if (d.temp >= LIM.temp.c)      evts.push({ type:"CRIT", msg:`Temperatura crítica ${d.temp.toFixed(1)}°C`, t, c: C.red });
+          else if (d.temp >= LIM.temp.w) evts.push({ type:"WARN", msg:`Elevação térmica ${d.temp.toFixed(1)}°C`, t, c: C.amber });
+          if (d.vibRMS >= LIM.vib.c)     evts.push({ type:"CRIT", msg:`Vibração crítica ${d.vibRMS.toFixed(2)} g`, t, c: C.red });
+          else if (d.vibRMS >= LIM.vib.w)evts.push({ type:"WARN", msg:`Vibração elevada ${d.vibRMS.toFixed(2)} g`, t, c: C.amber });
+          if (evts.length) setAlerts(a => [...evts, ...a].slice(0, 200));
+        } catch(e) { console.warn("[WS] parse error", e); }
+      };
+
+      ws.onerror = () => console.warn("[WS] erro de conexão");
+
+      ws.onclose = () => {
+        setWsConnected(false);
+        setAlerts(a => [{
+          type: "WARN", msg: "WebSocket desconectado — reconectando em 3s...",
+          t: new Date().toLocaleTimeString("pt-BR"), c: C.amber,
+        }, ...a].slice(0, 200));
+        reconnectTimer = setTimeout(connect, 3000);
+      };
+    }
+
+    connect();
+    return () => { clearTimeout(reconnectTimer); wsRef.current?.close(); };
+  }, []);
+
+  const st = running ? motorStatus(live) : "PARADO";
+
+  const layout = useMemo(() => {
+    if (screen < 900) return "mobile";
+    if (screen < 1250) return "tablet";
+    return "desktop";
+  }, [screen]);
 
   return (
-    <>
+    <div
+      style={{
+        fontFamily: U,
+        background: C.bg,
+        minHeight: "100vh",
+        color: C.white,
+        display: "flex",
+        flexDirection: "column",
+      }}
+    >
       <Fonts />
-      <PersistentAlarm alarm={persistentAlarm} />
 
-      <div style={{ minHeight: "100vh", display: "flex", flexDirection: "column" }}>
-        <header style={{ background: C.panel, borderBottom: `1px solid ${C.border}`, padding: "10px 18px", display: "flex", justifyContent: "space-between", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
-          <div>
-            <div style={{ fontFamily: M, fontSize: 13, fontWeight: 700, color: C.white }}>SMARTMOTOR v2</div>
-            <div style={{ fontFamily: M, fontSize: 8, color: C.dim }}>Painel operacional · manutenção preditiva</div>
-          </div>
-          <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
-            <ConnBadge ok={modbusOnline} />
-            <span style={{ fontFamily: M, fontSize: 8, color: C.dim }}>Fonte: {API_BASE_URL}</span>
-          </div>
-        </header>
-
-        <main style={{ flex: 1, display: "grid", gridTemplateColumns: "320px 1fr 360px", gap: 12, padding: 12 }}>
-          <div style={{ minWidth: 0 }}>
-            <TelemetryPanel d={live} hist={hist} />
-          </div>
-
-          <div style={{ minWidth: 0, background: C.panel, border: `1px solid ${C.border}`, borderRadius: 8 }}>
-            <div style={{ display: "flex", flexDirection: "column", overflowY: "auto" }}>
-              <div style={{ padding: "20px 24px 8px", display: "flex", flexDirection: "column", alignItems: "center" }}>
-                <div style={{ fontFamily: M, fontSize: 8, color: C.dim, marginBottom: 10, textTransform: "uppercase", letterSpacing: "0.14em" }}>
-                  BANCADA OPERACIONAL · MONITORAMENTO DE CONDIÇÃO
-                </div>
-                <MotorSVG status={st} running={running} onClick={() => setModalOpen(true)} />
+      <div style={{ background: C.panel, borderBottom: `1px solid ${C.border}`, flexShrink: 0 }}>
+        <div
+          style={{
+            padding: "0 18px",
+            minHeight: 56,
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "space-between",
+            gap: 14,
+            flexWrap: "wrap",
+          }}
+        >
+          <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
+            <svg width="28" height="28" viewBox="0 0 28 28">
+              <circle cx="14" cy="14" r="12" fill="none" stroke={C.blue} strokeWidth="1.5" />
+              <circle cx="14" cy="14" r="6" fill="none" stroke={C.blue} strokeWidth="1" strokeDasharray="3 2" />
+              <circle cx="14" cy="14" r="2.5" fill={C.blue} />
+            </svg>
+            <div>
+              <div style={{ fontFamily: M, fontSize: 12, fontWeight: 700, color: C.white, letterSpacing: "0.04em" }}>
+                SMART<span style={{ color: C.blue }}>MOTOR</span>
+                <span style={{ color: C.dim, fontWeight: 400, marginLeft: 6 }}>· Painel Operacional</span>
               </div>
-
-              <div style={{ padding: "4px 24px 12px", display: "flex", gap: 8, justifyContent: "center", flexWrap: "wrap" }}>
-                <button onClick={() => setModalOpen(true)} style={{ padding: "8px 20px", borderRadius: 6, cursor: "pointer", fontFamily: M, fontSize: 9, fontWeight: 700, letterSpacing: "0.1em", color: C.blue, background: C.blue + "12", border: `1px solid ${C.blue}55` }}>⊡ PAINEL DE CONTROLE</button>
-                <button onClick={() => { if (motorMode !== "MANUTENÇÃO") setRunning((v) => !v); }} style={{ padding: "8px 20px", borderRadius: 6, cursor: "pointer", fontFamily: M, fontSize: 9, fontWeight: 700, letterSpacing: "0.1em", color: running ? C.red : C.green, background: running ? "#fff2f2" : "#edfaf4", border: `1px solid ${running ? C.red : C.green}55`, opacity: motorMode === "MANUTENÇÃO" ? 0.4 : 1 }}>
-                  {running ? "■ PARAR" : "▶ LIGAR"}
-                </button>
-                <button onClick={() => { if (motorMode === "MANUTENÇÃO") setMotorMode("AUTO"); else { setMotorMode("MANUTENÇÃO"); setRunning(false); } }} style={{ padding: "8px 20px", borderRadius: 6, cursor: "pointer", fontFamily: M, fontSize: 9, fontWeight: 700, letterSpacing: "0.1em", color: motorMode === "MANUTENÇÃO" ? C.orange : C.dim, background: motorMode === "MANUTENÇÃO" ? "#fff6e8" : "transparent", border: `1px solid ${motorMode === "MANUTENÇÃO" ? C.orange : C.border}` }}>⚙ MANUTENÇÃO</button>
-              </div>
-
-              <div style={{ padding: "4px 18px 12px", display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
-                <div style={{ background: C.panel, borderRadius: 8, padding: "10px 12px", border: `1px solid ${C.border}` }}>
-                  <div style={{ fontFamily: M, fontSize: 8, color: C.dim, marginBottom: 6, textTransform: "uppercase", letterSpacing: "0.1em" }}>Índice de Saúde</div>
-                  <ResponsiveContainer width="100%" height={100}>
-                    <AreaChart data={hist.slice(-30)}>
-                      <defs>
-                        <linearGradient id="gscore" x1="0" y1="0" x2="0" y2="1">
-                          <stop offset="5%" stopColor={C.green} stopOpacity={0.2} />
-                          <stop offset="95%" stopColor={C.green} stopOpacity={0} />
-                        </linearGradient>
-                      </defs>
-                      <CartesianGrid strokeDasharray="2 6" stroke={C.grid} />
-                      <XAxis dataKey="t" tick={{ fontSize: 6, fill: C.dim, fontFamily: M }} interval="preserveStartEnd" />
-                      <YAxis tick={{ fontSize: 6, fill: C.dim, fontFamily: M }} width={22} domain={[0, 100]} />
-                      <Tooltip content={<CustomTooltip />} />
-                      <ReferenceLine y={40} stroke={C.amber} strokeDasharray="3 2" strokeWidth={0.8} />
-                      <Area type="monotone" dataKey="score" name="Saúde" stroke={C.green} fill="url(#gscore)" dot={false} strokeWidth={1.5} />
-                    </AreaChart>
-                  </ResponsiveContainer>
-                </div>
-
-                <div style={{ background: C.panel, borderRadius: 8, padding: "10px 12px", border: `1px solid ${C.border}` }}>
-                  <div style={{ fontFamily: M, fontSize: 8, color: C.dim, marginBottom: 6, textTransform: "uppercase", letterSpacing: "0.1em" }}>Vibração por Eixo</div>
-                  <ResponsiveContainer width="100%" height={100}>
-                    <LineChart data={hist.slice(-30)}>
-                      <CartesianGrid strokeDasharray="2 6" stroke={C.grid} />
-                      <XAxis dataKey="t" tick={{ fontSize: 6, fill: C.dim, fontFamily: M }} interval="preserveStartEnd" />
-                      <YAxis tick={{ fontSize: 6, fill: C.dim, fontFamily: M }} width={22} />
-                      <Tooltip content={<CustomTooltip />} />
-                      <Line type="monotone" dataKey="ax" name="Eixo X" stroke={C.blue} dot={false} strokeWidth={1.4} />
-                      <Line type="monotone" dataKey="ay" name="Eixo Y" stroke="#6870a0" dot={false} strokeWidth={1.4} />
-                      <Line type="monotone" dataKey="az" name="Eixo Z" stroke={C.teal} dot={false} strokeWidth={1.4} />
-                    </LineChart>
-                  </ResponsiveContainer>
-                </div>
+              <div style={{ fontFamily: M, fontSize: 7.5, color: C.dim }}>
+                BANCADA · {new Date().toLocaleDateString("pt-BR")}
               </div>
             </div>
           </div>
 
-          <div style={{ minWidth: 0 }}>
-            <AlertPanel alerts={dashboardAlerts} d={live} onExport={() => exportAlertsToCSV(dashboardAlerts)} onResolve={resolveBackendAlert} />
+          <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+            {[
+              ["ESP32", C.teal],
+              ["RTD", C.orange],
+              ["VIBRAÇÃO", C.blue],
+              ["CLP ONLINE", C.green],
+              ["CFW500", C.teal],
+            ].map(([lbl, col]) => (
+              <span
+                key={lbl}
+                style={{
+                  fontFamily: M,
+                  fontSize: 8,
+                  fontWeight: 600,
+                  color: col,
+                  background: `${col}15`,
+                  border: `1px solid ${col}55`,
+                  borderRadius: 3,
+                  padding: "2px 8px",
+                }}
+              >
+                {lbl}
+              </span>
+            ))}
+            <span style={{
+              fontFamily: M, fontSize: 8, fontWeight: 700,
+              color:      wsConnected ? C.green : C.amber,
+              background: wsConnected ? `${C.green}22` : `${C.amber}22`,
+              border:    `1px solid ${wsConnected ? C.green : C.amber}88`,
+              borderRadius: 3, padding: "2px 8px",
+            }}>
+              {wsConnected ? "● WS AO VIVO" : "○ WS SIM"}
+            </span>
           </div>
-        </main>
+        </div>
+      </div>
 
-        <StatusBar d={live} running={running} motorMode={motorMode} connStatus={connStatus} modbusOnline={modbusOnline} />
+      {layout === "desktop" && (
+        <div style={{ flex: 1, display: "grid", gridTemplateColumns: "280px 1fr 320px", minHeight: 0 }}>
+          <div style={{ borderRight: `1px solid ${C.border}`, padding: "14px", overflowY: "auto", background: C.bg2 }}>
+            <TelemetryPanel d={live} hist={hist} />
+          </div>
 
-        {modalOpen && (
-          <MotorControlModal
-            d={live}
+          <CenterPanel
+            st={st}
+            running={running}
             motorMode={motorMode}
             setMotorMode={setMotorMode}
-            running={running}
             setRunning={setRunning}
             freqSP={freqSP}
             setFreqSP={setFreqSP}
-            ramp={ramp}
-            setRamp={setRamp}
             degrad={degrad}
-            setDegrad={setDegrad}
-            onClose={() => setModalOpen(false)}
+            hist={hist}
+            setModalOpen={setModalOpen}
           />
-        )}
-      </div>
-    </>
+
+          <div style={{ borderLeft: `1px solid ${C.border}`, padding: "14px", overflowY: "auto", background: C.bg2 }}>
+            <AlertPanel alerts={alerts} d={live} onExport={() => exportAlertsToCSV(alerts)} />
+          </div>
+        </div>
+      )}
+
+      {layout === "tablet" && (
+        <div style={{ flex: 1, display: "grid", gridTemplateColumns: "1fr", minHeight: 0 }}>
+          <div style={{ padding: "14px", overflowY: "auto" }}>
+            <CenterPanel
+              st={st}
+              running={running}
+              motorMode={motorMode}
+              setMotorMode={setMotorMode}
+              setRunning={setRunning}
+              freqSP={freqSP}
+              setFreqSP={setFreqSP}
+              degrad={degrad}
+              hist={hist}
+              setModalOpen={setModalOpen}
+            />
+            <div style={{ marginTop: 14 }}>
+              <TelemetryPanel d={live} hist={hist} />
+            </div>
+            <div style={{ marginTop: 14 }}>
+              <AlertPanel alerts={alerts} d={live} onExport={() => exportAlertsToCSV(alerts)} />
+            </div>
+          </div>
+        </div>
+      )}
+
+      {layout === "mobile" && (
+        <div style={{ flex: 1, display: "grid", gridTemplateColumns: "1fr", minHeight: 0 }}>
+          <div style={{ padding: "12px", overflowY: "auto" }}>
+            <CenterPanel
+              st={st}
+              running={running}
+              motorMode={motorMode}
+              setMotorMode={setMotorMode}
+              setRunning={setRunning}
+              freqSP={freqSP}
+              setFreqSP={setFreqSP}
+              degrad={degrad}
+              hist={hist}
+              setModalOpen={setModalOpen}
+              compact
+            />
+            <div style={{ marginTop: 12 }}>
+              <TelemetryPanel d={live} hist={hist} />
+            </div>
+            <div style={{ marginTop: 12 }}>
+              <AlertPanel alerts={alerts} d={live} onExport={() => exportAlertsToCSV(alerts)} />
+            </div>
+          </div>
+        </div>
+      )}
+
+      <StatusBar d={live} running={running} motorMode={motorMode} />
+
+      {modalOpen && (
+        <MotorControlModal
+          d={live}
+          motorMode={motorMode}
+          setMotorMode={setMotorMode}
+          running={running}
+          setRunning={setRunning}
+          freqSP={freqSP}
+          setFreqSP={setFreqSP}
+          ramp={ramp}
+          setRamp={setRamp}
+          degrad={degrad}
+          setDegrad={setDegrad}
+          onClose={() => setModalOpen(false)}
+        />
+      )}
+    </div>
   );
 }
