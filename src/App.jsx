@@ -229,24 +229,25 @@ function Motor3DScene({ data, running }) {
   const temp   = data?.temp   ?? 45;
   const vibRMS = data?.vibRMS ?? 0.1;
   const rpm    = data?.rpm    ?? 0;
-  const heatLightColor  = temp > 80 ? "#ff4400" : temp > 65 ? "#ff8800" : "#6080ff";
-  const heatLightIntens = temp > 80 ? 3 : temp > 65 ? 1.5 : 0.4;
+  const heatLightColor  = temp > 80 ? "#ff4400" : temp > 65 ? "#ff8800" : "#ffffff";
+  const heatLightIntens = temp > 80 ? 2 : temp > 65 ? 1 : 0;
 
   return (
     <Canvas shadows camera={{ position: [5, 3, 5], fov: 40 }}
-      style={{ background: "transparent" }}>
-      <color attach="background" args={["#111620"]} />
+      style={{ background: "#d8e4ec" }}>
+      <color attach="background" args={["#dde8f0"]} />
 
-      {/* Iluminação industrial forte */}
-      <ambientLight intensity={1.2} />
-      <directionalLight position={[6, 8, 5]} intensity={2.5} castShadow
-        shadow-mapSize={[1024, 1024]} color="#fff5e8" />
-      <directionalLight position={[-5, 4, -4]} intensity={1.0} color="#a0c0ff" />
-      <directionalLight position={[0, -3, 3]} intensity={0.5} color="#8090a0" />
-      <pointLight position={[0, 3, 0]} intensity={heatLightIntens}
-        color={heatLightColor} distance={6} />
-      <spotLight position={[0, 5, 3]} intensity={1.5} color="#ffffff"
-        angle={0.6} penumbra={0.5} castShadow />
+      {/* Iluminação ambiente forte — chave para ver o motor */}
+      <ambientLight intensity={3.5} color="#ffffff" />
+      <directionalLight position={[6, 8, 5]}   intensity={3.0} castShadow color="#ffffff"
+        shadow-mapSize={[1024,1024]} />
+      <directionalLight position={[-5, 4, -4]}  intensity={2.0} color="#e0eeff" />
+      <directionalLight position={[0,  2, -6]}  intensity={1.5} color="#ffffff" />
+      <directionalLight position={[0, -2,  4]}  intensity={1.0} color="#c0d8f0" />
+      {heatLightIntens > 0 && (
+        <pointLight position={[0, 1.5, 0]} intensity={heatLightIntens}
+          color={heatLightColor} distance={5} />
+      )}
 
       <Suspense fallback={null}>
         <MotorMesh temp={temp} vibRMS={vibRMS} rpm={rpm} running={running} />
@@ -257,11 +258,12 @@ function Motor3DScene({ data, running }) {
         autoRotate={!running} autoRotateSpeed={0.6}
         minPolarAngle={Math.PI / 8} maxPolarAngle={Math.PI / 1.9} />
 
+      {/* Piso claro — concreto industrial */}
       <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, -1.1, 0]} receiveShadow>
-        <planeGeometry args={[14, 14]} />
-        <meshStandardMaterial color="#0d1117" metalness={0.2} roughness={0.95} />
+        <planeGeometry args={[18, 18]} />
+        <meshStandardMaterial color="#c8cfd6" metalness={0.05} roughness={0.85} />
       </mesh>
-      <gridHelper args={[12, 24, "#1e2a38", "#131c26"]} position={[0, -1.09, 0]} />
+      <gridHelper args={[16, 32, "#a8b4be", "#bbc5cc"]} position={[0, -1.09, 0]} />
     </Canvas>
   );
 }
