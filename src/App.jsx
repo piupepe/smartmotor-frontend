@@ -1,4 +1,6 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, Suspense } from "react";
+import { Canvas, useFrame } from "@react-three/fiber";
+import { OrbitControls } from "@react-three/drei";
 import {
   AreaChart,
   Area,
@@ -11,6 +13,101 @@ import {
   ReferenceLine,
   Tooltip,
 } from "recharts";
+
+/* ═══════════════════════════════════════════
+   DIGITAL TWIN 3D
+═══════════════════════════════════════════ */
+function MotorMesh({ temp = 30, vibRMS = 0.1, rpm = 0, running = false }) {
+  const rotorRef = useRef();
+  const bodyRef  = useRef();
+  const bodyColor  = temp > 85 ? "#c02828" : temp > 70 ? "#c96a00" : running ? "#1a6e3c" : "#2a4060";
+  const shaftColor = running ? "#a0b8d0" : "#607080";
+  const ledColor   = temp > 85 ? "#ff2d55" : temp > 70 ? "#ffb830" : running ? "#00e676" : "#3d5a78";
+
+  useFrame((state, delta) => {
+    if (!rotorRef.current) return;
+    rotorRef.current.rotation.x += (rpm / 60) * 2 * Math.PI * delta;
+    if (bodyRef.current && vibRMS > 0.1) {
+      const shake = vibRMS * 0.012;
+      const t = state.clock.elapsedTime;
+      bodyRef.current.position.x = Math.sin(t * 45) * shake;
+      bodyRef.current.position.y = Math.cos(t * 38) * shake * 0.7;
+    } else if (bodyRef.current) {
+      bodyRef.current.position.x *= 0.9;
+      bodyRef.current.position.y *= 0.9;
+    }
+  });
+
+  return (
+    <group ref={bodyRef}>
+      <mesh castShadow>
+        <boxGeometry args={[2.6, 1.3, 1.3]} />
+        <meshStandardMaterial color={bodyColor} metalness={0.6} roughness={0.35} />
+      </mesh>
+      {Array.from({ length: 8 }).map((_, i) => (
+        <mesh key={i} position={[-1.0 + i * 0.28, 0, 0]}>
+          <boxGeometry args={[0.04, 1.55, 1.55]} />
+          <meshStandardMaterial color={bodyColor} metalness={0.7} roughness={0.3} />
+        </mesh>
+      ))}
+      <mesh position={[1.45, 0, 0]}>
+        <cylinderGeometry args={[0.62, 0.62, 0.18, 32]} />
+        <meshStandardMaterial color="#1a2e44" metalness={0.8} roughness={0.2} />
+      </mesh>
+      <mesh position={[-1.45, 0, 0]}>
+        <cylinderGeometry args={[0.62, 0.62, 0.18, 32]} />
+        <meshStandardMaterial color="#1a2e44" metalness={0.8} roughness={0.2} />
+      </mesh>
+      <mesh ref={rotorRef} position={[1.65, 0, 0]} rotation={[0, 0, Math.PI / 2]}>
+        <cylinderGeometry args={[0.13, 0.13, 1.1, 24]} />
+        <meshStandardMaterial color={shaftColor} metalness={0.9} roughness={0.1} />
+      </mesh>
+      <mesh position={[0, 0.82, 0]}>
+        <boxGeometry args={[0.7, 0.28, 0.5]} />
+        <meshStandardMaterial color="#0e1521" metalness={0.5} roughness={0.5} />
+      </mesh>
+      <mesh position={[-0.6, 0.76, 0.4]}>
+        <boxGeometry args={[0.38, 0.18, 0.28]} />
+        <meshStandardMaterial color="#0d3060" metalness={0.3} roughness={0.6} />
+      </mesh>
+      <mesh position={[-0.42, 0.82, 0.54]}>
+        <sphereGeometry args={[0.04, 12, 12]} />
+        <meshStandardMaterial color={ledColor} emissive={ledColor} emissiveIntensity={running ? 2 : 0.3} />
+      </mesh>
+      <mesh position={[1.2, 0.7, 0]}>
+        <sphereGeometry args={[0.06, 12, 12]} />
+        <meshStandardMaterial color={ledColor} emissive={ledColor} emissiveIntensity={running ? 2.5 : 0.2} />
+      </mesh>
+      {[[-0.8, -0.9], [0.8, -0.9]].map(([x, y], i) => (
+        <mesh key={i} position={[x, y, 0]}>
+          <boxGeometry args={[0.5, 0.22, 1.5]} />
+          <meshStandardMaterial color="#0a131f" metalness={0.4} roughness={0.7} />
+        </mesh>
+      ))}
+    </group>
+  );
+}
+
+function Motor3DScene({ data, running }) {
+  return (
+    <Canvas shadows camera={{ position: [4, 2.5, 4], fov: 45 }} style={{ background: "transparent" }}>
+      <ambientLight intensity={0.5} />
+      <directionalLight position={[5, 8, 5]} intensity={1.2} castShadow />
+      <pointLight position={[-3, 2, -2]} intensity={0.4} color="#4080ff" />
+      <Suspense fallback={null}>
+        <MotorMesh
+          temp={data?.temp ?? 45}
+          vibRMS={data?.vibRMS ?? 0.1}
+          rpm={data?.rpm ?? 0}
+          running={running}
+        />
+      </Suspense>
+      <OrbitControls enableZoom={true} enablePan={false} minDistance={2.5} maxDistance={10}
+        autoRotate={!running} autoRotateSpeed={0.4} />
+      <gridHelper args={[8, 8, "#1a2d44", "#0a1520"]} position={[0, -1.1, 0]} />
+    </Canvas>
+  );
+}
 
 /* ═══════════════════════════════════════════
    TEMA CLARO INDUSTRIAL
@@ -957,14 +1054,36 @@ function CenterPanel({
   hist,
   setModalOpen,
   compact = false,
+  live,
 }) {
+  const [show3D, setShow3D] = useState(false);
+
   return (
     <div style={{ display: "flex", flexDirection: "column", overflowY: "auto" }}>
       <div style={{ padding: compact ? "18px 12px 8px" : "24px 28px 10px", display: "flex", flexDirection: "column", alignItems: "center" }}>
-        <MotorSVG status={st} running={running} onClick={() => setModalOpen(true)} />
+        {show3D ? (
+          <div style={{ width: "100%", height: 340, borderRadius: 10, overflow: "hidden", background: C.panelHi, border: `1px solid ${C.border}` }}>
+            <Motor3DScene data={live} running={running} />
+          </div>
+        ) : (
+          <MotorSVG status={st} running={running} onClick={() => setModalOpen(true)} />
+        )}
       </div>
 
       <div style={{ padding: compact ? "4px 12px 12px" : "4px 28px 12px", display: "flex", gap: 8, justifyContent: "center", flexWrap: "wrap" }}>
+        <button
+          onClick={() => setShow3D(v => !v)}
+          style={{
+            padding: "8px 16px", borderRadius: 6, cursor: "pointer",
+            fontFamily: M, fontSize: 9, fontWeight: 700, letterSpacing: "0.1em",
+            color:      show3D ? C.teal : C.dim,
+            background: show3D ? `${C.teal}18` : C.panel,
+            border:    `1px solid ${show3D ? C.teal : C.border}`,
+          }}
+        >
+          ⬡ 3D
+        </button>
+
         <button
           onClick={() => setModalOpen(true)}
           style={{
@@ -1329,6 +1448,7 @@ export default function App() {
             degrad={degrad}
             hist={hist}
             setModalOpen={setModalOpen}
+            live={live}
           />
 
           <div style={{ borderLeft: `1px solid ${C.border}`, padding: "14px", overflowY: "auto", background: C.bg2 }}>
@@ -1351,6 +1471,7 @@ export default function App() {
               degrad={degrad}
               hist={hist}
               setModalOpen={setModalOpen}
+              live={live}
             />
             <div style={{ marginTop: 14 }}>
               <TelemetryPanel d={live} hist={hist} />
@@ -1376,6 +1497,7 @@ export default function App() {
               degrad={degrad}
               hist={hist}
               setModalOpen={setModalOpen}
+                live={live}
               compact
             />
             <div style={{ marginTop: 12 }}>
