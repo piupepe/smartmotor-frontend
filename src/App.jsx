@@ -15,96 +15,325 @@ import {
 } from "recharts";
 
 /* ═══════════════════════════════════════════
-   DIGITAL TWIN 3D
+   DIGITAL TWIN 3D — WEG Motor Preto
 ═══════════════════════════════════════════ */
-function MotorMesh({ temp = 30, vibRMS = 0.1, rpm = 0, running = false }) {
-  const rotorRef = useRef();
-  const bodyRef  = useRef();
-  const bodyColor  = temp > 85 ? "#c02828" : temp > 70 ? "#c96a00" : running ? "#1a6e3c" : "#2a4060";
-  const shaftColor = running ? "#a0b8d0" : "#607080";
-  const ledColor   = temp > 85 ? "#ff2d55" : temp > 70 ? "#ffb830" : running ? "#00e676" : "#3d5a78";
 
-  useFrame((state, delta) => {
-    if (!rotorRef.current) return;
-    rotorRef.current.rotation.x += (rpm / 60) * 2 * Math.PI * delta;
-    if (bodyRef.current && vibRMS > 0.1) {
-      const shake = vibRMS * 0.012;
-      const t = state.clock.elapsedTime;
-      bodyRef.current.position.x = Math.sin(t * 45) * shake;
-      bodyRef.current.position.y = Math.cos(t * 38) * shake * 0.7;
-    } else if (bodyRef.current) {
-      bodyRef.current.position.x *= 0.9;
-      bodyRef.current.position.y *= 0.9;
-    }
+// Polia com raios girando
+function Pulley({ rpm }) {
+  const ref = useRef();
+  useFrame((_, delta) => {
+    if (!ref.current) return;
+    ref.current.rotation.z += (rpm / 60) * 2 * Math.PI * delta;
   });
-
   return (
-    <group ref={bodyRef}>
-      <mesh castShadow>
-        <boxGeometry args={[2.6, 1.3, 1.3]} />
-        <meshStandardMaterial color={bodyColor} metalness={0.6} roughness={0.35} />
+    <group ref={ref} position={[1.82, 0, 0]} rotation={[0, Math.PI / 2, 0]}>
+      {/* Aro externo */}
+      <mesh>
+        <torusGeometry args={[0.38, 0.055, 16, 48]} />
+        <meshStandardMaterial color="#1a1a1a" metalness={0.9} roughness={0.15} />
       </mesh>
-      {Array.from({ length: 8 }).map((_, i) => (
-        <mesh key={i} position={[-1.0 + i * 0.28, 0, 0]}>
-          <boxGeometry args={[0.04, 1.55, 1.55]} />
-          <meshStandardMaterial color={bodyColor} metalness={0.7} roughness={0.3} />
+      {/* Cubo central */}
+      <mesh>
+        <cylinderGeometry args={[0.10, 0.10, 0.14, 24]} />
+        <meshStandardMaterial color="#2a2a2a" metalness={0.85} roughness={0.2} />
+      </mesh>
+      {/* 4 raios */}
+      {[0, 1, 2, 3].map(i => (
+        <mesh key={i} rotation={[0, 0, (i * Math.PI) / 2]}>
+          <boxGeometry args={[0.56, 0.04, 0.05]} />
+          <meshStandardMaterial color="#1c1c1c" metalness={0.9} roughness={0.2} />
         </mesh>
       ))}
-      <mesh position={[1.45, 0, 0]}>
-        <cylinderGeometry args={[0.62, 0.62, 0.18, 32]} />
-        <meshStandardMaterial color="#1a2e44" metalness={0.8} roughness={0.2} />
+      {/* Canal da correia */}
+      <mesh>
+        <torusGeometry args={[0.38, 0.03, 8, 48]} />
+        <meshStandardMaterial color="#111" metalness={0.7} roughness={0.4} />
       </mesh>
-      <mesh position={[-1.45, 0, 0]}>
-        <cylinderGeometry args={[0.62, 0.62, 0.18, 32]} />
-        <meshStandardMaterial color="#1a2e44" metalness={0.8} roughness={0.2} />
-      </mesh>
-      <mesh ref={rotorRef} position={[1.65, 0, 0]} rotation={[0, 0, Math.PI / 2]}>
-        <cylinderGeometry args={[0.13, 0.13, 1.1, 24]} />
-        <meshStandardMaterial color={shaftColor} metalness={0.9} roughness={0.1} />
-      </mesh>
-      <mesh position={[0, 0.82, 0]}>
-        <boxGeometry args={[0.7, 0.28, 0.5]} />
-        <meshStandardMaterial color="#0e1521" metalness={0.5} roughness={0.5} />
-      </mesh>
-      <mesh position={[-0.6, 0.76, 0.4]}>
-        <boxGeometry args={[0.38, 0.18, 0.28]} />
-        <meshStandardMaterial color="#0d3060" metalness={0.3} roughness={0.6} />
-      </mesh>
-      <mesh position={[-0.42, 0.82, 0.54]}>
-        <sphereGeometry args={[0.04, 12, 12]} />
-        <meshStandardMaterial color={ledColor} emissive={ledColor} emissiveIntensity={running ? 2 : 0.3} />
-      </mesh>
-      <mesh position={[1.2, 0.7, 0]}>
-        <sphereGeometry args={[0.06, 12, 12]} />
-        <meshStandardMaterial color={ledColor} emissive={ledColor} emissiveIntensity={running ? 2.5 : 0.2} />
-      </mesh>
-      {[[-0.8, -0.9], [0.8, -0.9]].map(([x, y], i) => (
-        <mesh key={i} position={[x, y, 0]}>
-          <boxGeometry args={[0.5, 0.22, 1.5]} />
-          <meshStandardMaterial color="#0a131f" metalness={0.4} roughness={0.7} />
+    </group>
+  );
+}
+
+// Ventilador traseiro girando
+function FanBlades({ rpm }) {
+  const ref = useRef();
+  useFrame((_, delta) => {
+    if (!ref.current) return;
+    ref.current.rotation.x += (rpm / 60) * 2 * Math.PI * delta;
+  });
+  return (
+    <group ref={ref} position={[-1.52, 0, 0]} rotation={[0, Math.PI / 2, 0]}>
+      {[0,1,2,3,4,5].map(i => (
+        <mesh key={i} rotation={[0, 0, (i * Math.PI) / 3]}
+              position={[0.19 * Math.cos((i * Math.PI) / 3), 0.19 * Math.sin((i * Math.PI) / 3), 0]}>
+          <boxGeometry args={[0.18, 0.05, 0.03]} />
+          <meshStandardMaterial color="#1a1a1a" metalness={0.7} roughness={0.4} />
         </mesh>
       ))}
     </group>
   );
 }
 
-function Motor3DScene({ data, running }) {
+function MotorMesh({ temp = 30, vibRMS = 0.1, rpm = 0, running = false }) {
+  const bodyRef   = useRef();
+  const shaftRef  = useRef();
+  const glowRef   = useRef();
+
+  // Cores baseadas em temperatura
+  const heatColor   = temp > 85 ? "#ff2d00" : temp > 70 ? "#ff7700" : temp > 55 ? "#ff4400" : "#222";
+  const heatIntens  = temp > 85 ? 1.8 : temp > 70 ? 0.9 : temp > 55 ? 0.35 : 0;
+  const ledColor    = temp > 85 ? "#ff2d55" : temp > 70 ? "#ffb830" : running ? "#00e676" : "#333";
+
+  useFrame((state, delta) => {
+    const t = state.clock.elapsedTime;
+
+    // Vibração mecânica na carcaça
+    if (bodyRef.current) {
+      if (running && vibRMS > 0.2) {
+        const shake = vibRMS * 0.009;
+        const freq  = 40 + vibRMS * 8;
+        bodyRef.current.position.x = Math.sin(t * freq)       * shake;
+        bodyRef.current.position.y = Math.cos(t * freq * 1.3) * shake * 0.6;
+        bodyRef.current.rotation.z = Math.sin(t * freq * 0.7) * shake * 0.015;
+      } else {
+        bodyRef.current.position.x  *= 0.85;
+        bodyRef.current.position.y  *= 0.85;
+        bodyRef.current.rotation.z  *= 0.85;
+      }
+    }
+
+    // Eixo gira
+    if (shaftRef.current) {
+      shaftRef.current.rotation.x += (rpm / 60) * 2 * Math.PI * delta;
+    }
+
+    // Pulso de calor
+    if (glowRef.current) {
+      glowRef.current.material.emissiveIntensity =
+        heatIntens * (0.7 + 0.3 * Math.sin(t * 3));
+    }
+  });
+
+  const BLACK   = "#111213";
+  const DARKGRAY = "#1c1e20";
+  const METAL   = "#2a2e32";
+  const CHROME  = "#8090a0";
+
   return (
-    <Canvas shadows camera={{ position: [4, 2.5, 4], fov: 45 }} style={{ background: "transparent" }}>
-      <ambientLight intensity={0.5} />
-      <directionalLight position={[5, 8, 5]} intensity={1.2} castShadow />
-      <pointLight position={[-3, 2, -2]} intensity={0.4} color="#4080ff" />
-      <Suspense fallback={null}>
-        <MotorMesh
-          temp={data?.temp ?? 45}
-          vibRMS={data?.vibRMS ?? 0.1}
-          rpm={data?.rpm ?? 0}
-          running={running}
+    <group ref={bodyRef}>
+
+      {/* ── Carcaça principal preta ── */}
+      <mesh castShadow receiveShadow>
+        <boxGeometry args={[2.8, 1.35, 1.35]} />
+        <meshStandardMaterial color={BLACK} metalness={0.75} roughness={0.3} />
+      </mesh>
+
+      {/* ── Rasgos de ventilação horizontais (faces superior e inferior) ── */}
+      {[-0.55, -0.3, -0.05, 0.2, 0.45].map((z, i) => (
+        <group key={i}>
+          {/* face superior */}
+          <mesh position={[0, 0.685, z]}>
+            <boxGeometry args={[2.6, 0.02, 0.06]} />
+            <meshStandardMaterial color="#080a0c" metalness={0.6} roughness={0.5} />
+          </mesh>
+          {/* face inferior */}
+          <mesh position={[0, -0.685, z]}>
+            <boxGeometry args={[2.6, 0.02, 0.06]} />
+            <meshStandardMaterial color="#080a0c" metalness={0.6} roughness={0.5} />
+          </mesh>
+          {/* face frontal */}
+          <mesh position={[0, z * 0.5, 0.685]}>
+            <boxGeometry args={[2.6, 0.06, 0.02]} />
+            <meshStandardMaterial color="#080a0c" metalness={0.6} roughness={0.5} />
+          </mesh>
+          {/* face traseira */}
+          <mesh position={[0, z * 0.5, -0.685]}>
+            <boxGeometry args={[2.6, 0.06, 0.02]} />
+            <meshStandardMaterial color="#080a0c" metalness={0.6} roughness={0.5} />
+          </mesh>
+        </group>
+      ))}
+
+      {/* ── Tampa DE (Drive End) — lado da polia ── */}
+      <mesh position={[1.52, 0, 0]} castShadow>
+        <cylinderGeometry args={[0.66, 0.66, 0.12, 40]} />
+        <meshStandardMaterial color={DARKGRAY} metalness={0.85} roughness={0.15} />
+      </mesh>
+      {/* Parafusos tampa DE */}
+      {[0,1,2,3,4,5].map(i => (
+        <mesh key={i} position={[
+          1.59,
+          0.52 * Math.sin(i * Math.PI / 3),
+          0.52 * Math.cos(i * Math.PI / 3)
+        ]}>
+          <cylinderGeometry args={[0.03, 0.03, 0.06, 8]} />
+          <meshStandardMaterial color={CHROME} metalness={1} roughness={0.1} />
+        </mesh>
+      ))}
+
+      {/* ── Tampa NDE (Non Drive End) — com ventilador ── */}
+      <mesh position={[-1.52, 0, 0]} castShadow>
+        <cylinderGeometry args={[0.66, 0.66, 0.12, 40]} />
+        <meshStandardMaterial color={DARKGRAY} metalness={0.85} roughness={0.15} />
+      </mesh>
+      {/* Grade de ventilação NDE */}
+      {[0,1,2,3,4,5,6,7].map(i => (
+        <mesh key={i} position={[
+          -1.59,
+          0.35 * Math.sin(i * Math.PI / 4),
+          0.35 * Math.cos(i * Math.PI / 4)
+        ]}>
+          <boxGeometry args={[0.04, 0.28, 0.03]} />
+          <meshStandardMaterial color="#0a0a0a" metalness={0.5} roughness={0.6} />
+        </mesh>
+      ))}
+
+      {/* ── Eixo principal ── */}
+      <mesh ref={shaftRef} position={[1.75, 0, 0]} rotation={[0, 0, Math.PI / 2]} castShadow>
+        <cylinderGeometry args={[0.12, 0.12, 0.7, 24]} />
+        <meshStandardMaterial color={CHROME} metalness={0.95} roughness={0.05} />
+      </mesh>
+      {/* Ressalto do eixo */}
+      <mesh position={[1.58, 0, 0]} rotation={[0, 0, Math.PI / 2]}>
+        <cylinderGeometry args={[0.155, 0.155, 0.08, 24]} />
+        <meshStandardMaterial color={METAL} metalness={0.9} roughness={0.1} />
+      </mesh>
+
+      {/* ── Polia ── */}
+      <Pulley rpm={rpm} />
+
+      {/* ── Ventilador NDE ── */}
+      <FanBlades rpm={rpm} />
+
+      {/* ── Caixa de bornes (terminal box) ── */}
+      <mesh position={[0.2, 0.88, 0]} castShadow>
+        <boxGeometry args={[0.75, 0.28, 0.55]} />
+        <meshStandardMaterial color={DARKGRAY} metalness={0.6} roughness={0.4} />
+      </mesh>
+      {/* Tampa caixa bornes */}
+      <mesh position={[0.2, 1.03, 0]}>
+        <boxGeometry args={[0.7, 0.05, 0.5]} />
+        <meshStandardMaterial color={BLACK} metalness={0.7} roughness={0.3} />
+      </mesh>
+      {/* Parafusos caixa */}
+      {[[-0.28, 0.22], [0.28, 0.22], [-0.28, -0.22], [0.28, -0.22]].map(([x, z], i) => (
+        <mesh key={i} position={[0.2 + x, 1.06, z]}>
+          <cylinderGeometry args={[0.025, 0.025, 0.05, 8]} />
+          <meshStandardMaterial color={CHROME} metalness={1} roughness={0.1} />
+        </mesh>
+      ))}
+
+      {/* ── Módulo ESP32 sensor (azul) ── */}
+      <mesh position={[-0.5, 0.78, 0.52]} castShadow>
+        <boxGeometry args={[0.36, 0.16, 0.24]} />
+        <meshStandardMaterial color="#0a1a3a" metalness={0.3} roughness={0.6} />
+      </mesh>
+      {/* Ímã do sensor */}
+      <mesh position={[-0.5, 0.72, 0.52]}>
+        <cylinderGeometry args={[0.07, 0.07, 0.04, 16]} />
+        <meshStandardMaterial color="#222" metalness={0.8} roughness={0.3} />
+      </mesh>
+
+      {/* ── Plaqueta de identificação WEG ── */}
+      <mesh position={[0, 0, 0.685]}>
+        <planeGeometry args={[0.9, 0.35]} />
+        <meshStandardMaterial color="#e8e0c8" metalness={0.1} roughness={0.8} />
+      </mesh>
+
+      {/* ── Pés / base ── */}
+      {[[-0.85, -0.95], [0.85, -0.95]].map(([x, y], i) => (
+        <group key={i} position={[x, y, 0]}>
+          <mesh castShadow>
+            <boxGeometry args={[0.55, 0.2, 1.6]} />
+            <meshStandardMaterial color={DARKGRAY} metalness={0.6} roughness={0.5} />
+          </mesh>
+          {/* furos de fixação */}
+          {[-0.52, 0.52].map((z, j) => (
+            <mesh key={j} position={[0, -0.05, z]} rotation={[0, 0, Math.PI/2]}>
+              <cylinderGeometry args={[0.06, 0.06, 0.56, 12]} />
+              <meshStandardMaterial color="#0a0a0a" metalness={0.3} roughness={0.8} />
+            </mesh>
+          ))}
+        </group>
+      ))}
+
+      {/* ── LED status ── */}
+      <mesh position={[1.1, 0.72, 0.65]}>
+        <sphereGeometry args={[0.05, 12, 12]} />
+        <meshStandardMaterial
+          color={ledColor}
+          emissive={ledColor}
+          emissiveIntensity={running ? 2.5 : 0.2}
         />
+      </mesh>
+
+      {/* ── Brilho de calor (heat glow) sobre a carcaça ── */}
+      <mesh ref={glowRef}>
+        <boxGeometry args={[2.85, 1.42, 1.42]} />
+        <meshStandardMaterial
+          color={heatColor}
+          emissive={heatColor}
+          emissiveIntensity={heatIntens}
+          transparent
+          opacity={0.08}
+          depthWrite={false}
+        />
+      </mesh>
+
+    </group>
+  );
+}
+
+function Motor3DScene({ data, running }) {
+  const temp   = data?.temp   ?? 45;
+  const vibRMS = data?.vibRMS ?? 0.1;
+  const rpm    = data?.rpm    ?? 0;
+
+  // Cor da luz pontual muda com temperatura
+  const heatLight = temp > 80 ? "#ff4400" : temp > 65 ? "#ff8800" : "#204060";
+  const heatLightIntens = temp > 80 ? 2.5 : temp > 65 ? 1.2 : 0.3;
+
+  return (
+    <Canvas
+      shadows
+      camera={{ position: [4.5, 2.8, 4.5], fov: 42 }}
+      style={{ background: "transparent" }}
+    >
+      <color attach="background" args={["#0a0f14"]} />
+      <fog attach="fog" args={["#0a0f14", 10, 30]} />
+
+      {/* Iluminação industrial */}
+      <ambientLight intensity={0.35} />
+      <directionalLight position={[6, 10, 6]} intensity={1.4} castShadow
+        shadow-mapSize={[2048, 2048]} />
+      <directionalLight position={[-4, 3, -3]} intensity={0.3} color="#4060a0" />
+      {/* Luz de calor — muda com temperatura */}
+      <pointLight position={[0, 2.5, 0]} intensity={heatLightIntens}
+        color={heatLight} distance={5} />
+      {/* Rim light industrial */}
+      <spotLight position={[-5, 4, -4]} intensity={0.6} color="#2040a0"
+        angle={0.5} penumbra={0.8} />
+
+      <Suspense fallback={null}>
+        <MotorMesh temp={temp} vibRMS={vibRMS} rpm={rpm} running={running} />
       </Suspense>
-      <OrbitControls enableZoom={true} enablePan={false} minDistance={2.5} maxDistance={10}
-        autoRotate={!running} autoRotateSpeed={0.4} />
-      <gridHelper args={[8, 8, "#1a2d44", "#0a1520"]} position={[0, -1.1, 0]} />
+
+      <OrbitControls
+        enableZoom={true}
+        enablePan={false}
+        minDistance={3}
+        maxDistance={12}
+        autoRotate={!running}
+        autoRotateSpeed={0.5}
+        minPolarAngle={Math.PI / 6}
+        maxPolarAngle={Math.PI / 1.8}
+      />
+
+      {/* Piso industrial */}
+      <mesh rotation={[-Math.PI / 2, 0, 0]} position={[0, -1.08, 0]} receiveShadow>
+        <planeGeometry args={[12, 12]} />
+        <meshStandardMaterial color="#0d1117" metalness={0.3} roughness={0.9} />
+      </mesh>
+      <gridHelper args={[10, 20, "#1a2535", "#111820"]} position={[0, -1.07, 0]} />
     </Canvas>
   );
 }
